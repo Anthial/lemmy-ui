@@ -117,10 +117,6 @@ export class Signup extends Component<any, State> {
     );
   }
 
-  get isLemmyMl(): boolean {
-    return isBrowser() && window.location.hostname == "lemmy.ml";
-  }
-
   render() {
     return (
       <div className="home-signup container-lg">
@@ -145,16 +141,6 @@ export class Signup extends Component<any, State> {
         onSubmit={linkEvent(this, this.handleRegisterSubmit)}
       >
         <h1 className="h4 mb-4">{this.titleName(siteView)}</h1>
-
-        {this.isLemmyMl && (
-          <div className="mb-3 row">
-            <div className="mt-2 mb-0 alert alert-warning" role="alert">
-              <T i18nKey="lemmy_ml_registration_message">
-                #<a href={joinLemmyUrl}>#</a>
-              </T>
-            </div>
-          </div>
-        )}
 
         <div className="mb-3 row">
           <label
