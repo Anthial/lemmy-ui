@@ -56,11 +56,6 @@ export class Footer extends Component<FooterProps, any> {
                 {I18NextService.i18n.t("code")}
               </a>
             </li>
-            <li className="nav-item">
-              <a className="nav-link" href={joinLemmyUrl}>
-                {new URL(joinLemmyUrl).hostname}
-              </a>
-            </li>
           </ul>
         </div>
       </footer>
