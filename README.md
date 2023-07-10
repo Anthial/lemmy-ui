@@ -1,5 +1,7 @@
 # Lemmy-UI
 
+Just Lemmy UI, but with less links to lemmy stuff.
+
 The official web app for [Lemmy](https://github.com/LemmyNet/lemmy), written in inferno.
 
 Based off of MrFoxPro's [inferno-isomorphic-template](https://github.com/MrFoxPro/inferno-isomorphic-template).
