@@ -1,4 +1,4 @@
-import { isBrowser } from "@utils/browser";
+import { isBrowser, platform } from "@utils/browser";
 import { numToSI, randomStr } from "@utils/helpers";
 import autosize from "autosize";
 import classNames from "classnames";
@@ -21,7 +21,7 @@ import { EmojiPicker } from "./emoji-picker";
 import { Icon, Spinner } from "./icon";
 import { LanguageSelect } from "./language-select";
 import ProgressBar from "./progress-bar";
-
+import validUrl from "@utils/helpers/valid-url";
 interface MarkdownTextAreaProps {
   /**
    * Initial content inside the textarea
@@ -49,7 +49,7 @@ interface MarkdownTextAreaProps {
   hideNavigationWarnings?: boolean;
   onContentChange?(val: string): void;
   onReplyCancel?(): void;
-  onSubmit?(content: string, formId: string, languageId?: number): void;
+  onSubmit?(content: string, languageId?: number): void;
   allLanguages: Language[]; // TODO should probably be nullable
   siteLanguages: number[]; // TODO same
 }
@@ -202,7 +202,7 @@ export class MarkdownTextArea extends Component<
                 {this.getFormatButton("header", this.handleInsertHeader)}
                 {this.getFormatButton(
                   "strikethrough",
-                  this.handleInsertStrikethrough
+                  this.handleInsertStrikethrough,
                 )}
                 {this.getFormatButton("quote", this.handleInsertQuote)}
                 {this.getFormatButton("list", this.handleInsertList)}
@@ -210,7 +210,7 @@ export class MarkdownTextArea extends Component<
                 {this.getFormatButton("subscript", this.handleInsertSubscript)}
                 {this.getFormatButton(
                   "superscript",
-                  this.handleInsertSuperscript
+                  this.handleInsertSuperscript,
                 )}
                 {this.getFormatButton("spoiler", this.handleInsertSpoiler)}
                 <a
@@ -230,11 +230,11 @@ export class MarkdownTextArea extends Component<
                     "form-control border-0 rounded-top-0 rounded-bottom",
                     {
                       "d-none": this.state.previewMode,
-                    }
+                    },
                   )}
                   value={this.state.content}
                   onInput={linkEvent(this, this.handleContentChange)}
-                  onPaste={linkEvent(this, this.handleImageUploadPaste)}
+                  onPaste={linkEvent(this, this.handlePaste)}
                   onKeyDown={linkEvent(this, this.handleKeyBinds)}
                   required
                   disabled={this.isDisabled}
@@ -329,7 +329,7 @@ export class MarkdownTextArea extends Component<
 
   getFormatButton(
     type: NoOptionI18nKeys,
-    handleClick: (i: MarkdownTextArea, event: any) => void
+    handleClick: (i: MarkdownTextArea, event: any) => void,
   ) {
     let iconType: string;
 
@@ -361,10 +361,10 @@ export class MarkdownTextArea extends Component<
 
   handleEmoji(i: MarkdownTextArea, e: any) {
     let value = e.native;
-    if (value == null) {
+    if (value === null) {
       const emoji = customEmojisLookup.get(e.id)?.custom_emoji;
       if (emoji) {
-        value = `![${emoji.alt_text}](${emoji.image_url} "${emoji.shortcode}")`;
+        value = `![${emoji.alt_text}](${emoji.image_url} "emoji ${emoji.shortcode}")`;
       }
     }
     i.setState({
@@ -375,10 +375,49 @@ export class MarkdownTextArea extends Component<
     autosize.update(textarea);
   }
 
-  handleImageUploadPaste(i: MarkdownTextArea, event: any) {
+  handlePaste(i: MarkdownTextArea, event: ClipboardEvent) {
+    if (!event.clipboardData) return;
+
+    // check clipboard files
     const image = event.clipboardData.files[0];
     if (image) {
       i.handleImageUpload(i, image);
+      return;
+    }
+
+    // check clipboard url
+    const url = event.clipboardData.getData("text");
+    if (validUrl(url)) {
+      i.handleUrlPaste(url, i, event);
+    }
+  }
+
+  handleUrlPaste(url: string, i: MarkdownTextArea, event: ClipboardEvent) {
+    // query textarea element
+    const textarea = document.getElementById(i.id);
+
+    if (textarea instanceof HTMLTextAreaElement) {
+      const { selectionStart, selectionEnd } = textarea;
+
+      // if no selection, just insert url
+      if (selectionStart === selectionEnd) return;
+
+      event.preventDefault();
+      const selectedText = i.getSelectedText();
+
+      // update textarea content
+      i.setState(({ content }) => ({
+        content: `${
+          content?.substring(0, selectionStart) ?? ""
+        }[${selectedText}](${url})${content?.substring(selectionEnd) ?? ""}`,
+      }));
+      i.contentChange();
+
+      // shift selection 1 to the right
+      textarea.setSelectionRange(
+        selectionStart + 1,
+        selectionStart + 1 + selectedText.length,
+      );
     }
   }
 
@@ -397,7 +436,7 @@ export class MarkdownTextArea extends Component<
           count: Number(maxUploadImages),
           formattedCount: numToSI(maxUploadImages),
         }),
-        "danger"
+        "danger",
       );
     } else {
       i.setState({
@@ -425,7 +464,7 @@ export class MarkdownTextArea extends Component<
                 uploaded: (imageUploadStatus?.uploaded ?? 0) + 1,
               },
             }));
-          })
+          }),
         );
       } catch (e) {
         errorOccurred = true;
@@ -477,7 +516,7 @@ export class MarkdownTextArea extends Component<
   // Keybind handler
   // Keybinds inspired by github comment area
   handleKeyBinds(i: MarkdownTextArea, event: KeyboardEvent) {
-    if (event.ctrlKey || event.metaKey) {
+    if (platform.isMac() ? event.metaKey : event.ctrlKey) {
       switch (event.key) {
         case "k": {
           i.handleInsertLink(i, event);
@@ -535,7 +574,7 @@ export class MarkdownTextArea extends Component<
     event.preventDefault();
     if (i.state.content) {
       i.setState({ loading: true, submitted: true });
-      i.props.onSubmit?.(i.state.content, i.formId, i.state.languageId);
+      i.props.onSubmit?.(i.state.content, i.state.languageId);
     }
   }
 
@@ -561,7 +600,7 @@ export class MarkdownTextArea extends Component<
       i.setState({
         content: `${content?.substring(
           0,
-          start
+          start,
         )}[${selectedText}]()${content?.substring(end)}`,
       });
       textarea.focus();
@@ -585,7 +624,7 @@ export class MarkdownTextArea extends Component<
   simpleSurroundBeforeAfter(
     beforeChars: string,
     afterChars: string,
-    emptyChars = "___"
+    emptyChars = "___",
   ) {
     const content = this.state.content ?? "";
     if (!this.state.content) {
@@ -600,7 +639,7 @@ export class MarkdownTextArea extends Component<
       this.setState({
         content: `${content?.substring(
           0,
-          start
+          start,
         )}${beforeChars}${selectedText}${afterChars}${content?.substring(end)}`,
       });
     } else {
@@ -615,12 +654,12 @@ export class MarkdownTextArea extends Component<
     if (start !== end) {
       textarea.setSelectionRange(
         start + beforeChars.length,
-        end + afterChars.length
+        end + afterChars.length,
       );
     } else {
       textarea.setSelectionRange(
         start + beforeChars.length,
-        end + emptyChars.length + afterChars.length
+        end + emptyChars.length + afterChars.length,
       );
     }
 

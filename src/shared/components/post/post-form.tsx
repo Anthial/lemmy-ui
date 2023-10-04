@@ -1,9 +1,4 @@
-import {
-  communityToChoice,
-  fetchCommunities,
-  myAuth,
-  myAuthRequired,
-} from "@utils/app";
+import { communityToChoice, fetchCommunities } from "@utils/app";
 import {
   capitalizeFirstLetter,
   debounce,
@@ -89,7 +84,6 @@ function handlePostSubmit(i: PostForm, event: any) {
     i.setState(s => ((s.form.url = undefined), s));
   }
   i.setState({ loading: true, submitted: true });
-  const auth = myAuthRequired();
 
   const pForm = i.state.form;
   const pv = i.props.post_view;
@@ -102,7 +96,6 @@ function handlePostSubmit(i: PostForm, event: any) {
       nsfw: pForm.nsfw,
       post_id: pv.post.id,
       language_id: pForm.language_id,
-      auth,
     });
   } else if (pForm.name && pForm.community_id) {
     i.props.onCreate?.({
@@ -113,7 +106,6 @@ function handlePostSubmit(i: PostForm, event: any) {
       nsfw: pForm.nsfw,
       language_id: pForm.language_id,
       honeypot: pForm.honeypot,
-      auth,
     });
   }
 }
@@ -122,7 +114,7 @@ function copySuggestedTitle(d: { i: PostForm; suggestedTitle?: string }) {
   const sTitle = d.suggestedTitle;
   if (sTitle) {
     d.i.setState(
-      s => ((s.form.name = sTitle?.substring(0, MAX_POST_TITLE_LENGTH)), s)
+      s => ((s.form.name = sTitle?.substring(0, MAX_POST_TITLE_LENGTH)), s),
     );
     d.i.setState({ suggestedPostsRes: { state: "empty" } });
     setTimeout(() => {
@@ -271,9 +263,9 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               ({ community: { id, title } }) => ({
                 label: title,
                 value: id.toString(),
-              })
+              }),
             ) ?? []
-          ).filter(option => option.value !== selectedCommunityChoice.value)
+          ).filter(option => option.value !== selectedCommunityChoice.value),
         ),
       };
     } else {
@@ -284,7 +276,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
             ({ community: { id, title } }) => ({
               label: title,
               value: id.toString(),
-            })
+            }),
           ) ?? [],
       };
     }
@@ -310,16 +302,16 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   }
 
   componentWillReceiveProps(
-    nextProps: Readonly<{ children?: InfernoNode } & PostFormProps>
+    nextProps: Readonly<{ children?: InfernoNode } & PostFormProps>,
   ): void {
-    if (this.props != nextProps) {
+    if (this.props !== nextProps) {
       this.setState(
         s => (
           (s.form.community_id = getIdFromString(
-            nextProps.selectedCommunityChoice?.value
+            nextProps.selectedCommunityChoice?.value,
           )),
           s
-        )
+        ),
       );
     }
   }
@@ -342,6 +334,32 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
             ) && !this.state.submitted
           }
         />
+        <div className="mb-3 row">
+          <label className="col-sm-2 col-form-label" htmlFor="post-title">
+            {I18NextService.i18n.t("title")}
+          </label>
+          <div className="col-sm-10">
+            <textarea
+              value={this.state.form.name}
+              id="post-title"
+              onInput={linkEvent(this, handlePostNameChange)}
+              className={`form-control ${
+                !validTitle(this.state.form.name) && "is-invalid"
+              }`}
+              required
+              rows={1}
+              minLength={3}
+              maxLength={MAX_POST_TITLE_LENGTH}
+            />
+            {!validTitle(this.state.form.name) && (
+              <div className="invalid-feedback">
+                {I18NextService.i18n.t("invalid_post_title")}
+              </div>
+            )}
+            {this.renderSuggestedPosts()}
+          </div>
+        </div>
+
         <div className="mb-3 row">
           <label className="col-sm-2 col-form-label" htmlFor="post-url">
             {I18NextService.i18n.t("url")}
@@ -367,7 +385,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 </a>
                 <a
                   href={`${ghostArchiveUrl}/search?term=${encodeURIComponent(
-                    url
+                    url,
                   )}`}
                   className="me-2 d-inline-block float-right text-muted small fw-bold"
                   rel={relTags}
@@ -376,7 +394,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 </a>
                 <a
                   href={`${archiveTodayUrl}/?run=1&url=${encodeURIComponent(
-                    url
+                    url,
                   )}`}
                   className="me-2 d-inline-block float-right text-muted small fw-bold"
                   rel={relTags}
@@ -447,35 +465,10 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 onAddModToCommunity={() => {}}
                 onAddAdmin={() => {}}
                 onTransferCommunity={() => {}}
+                onMarkPostAsRead={() => {}}
               />
             </>
           )}
-        </div>
-
-        <div className="mb-3 row">
-          <label className="col-sm-2 col-form-label" htmlFor="post-title">
-            {I18NextService.i18n.t("title")}
-          </label>
-          <div className="col-sm-10">
-            <textarea
-              value={this.state.form.name}
-              id="post-title"
-              onInput={linkEvent(this, handlePostNameChange)}
-              className={`form-control ${
-                !validTitle(this.state.form.name) && "is-invalid"
-              }`}
-              required
-              rows={1}
-              minLength={3}
-              maxLength={MAX_POST_TITLE_LENGTH}
-            />
-            {!validTitle(this.state.form.name) && (
-              <div className="invalid-feedback">
-                {I18NextService.i18n.t("invalid_post_title")}
-              </div>
-            )}
-            {this.renderSuggestedPosts()}
-          </div>
         </div>
 
         <div className="mb-3 row">
@@ -581,8 +574,10 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
       case "loading":
         return <Spinner />;
       case "success": {
-        const suggestedTitle = this.state.metadataRes.data.metadata.title;
-
+        // Clean up the title of any extra whitespace and replace &nbsp; with a space
+        const suggestedTitle = this.state.metadataRes.data.metadata.title
+          ?.trim()
+          .replace(/\s+/g, " ");
         return (
           suggestedTitle && (
             <button
@@ -590,7 +585,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               className="mt-1 small border-0 bg-transparent p-0 d-block text-muted fw-bold pointer"
               onClick={linkEvent(
                 { i: this, suggestedTitle },
-                copySuggestedTitle
+                copySuggestedTitle,
               )}
             >
               {I18NextService.i18n.t("copy_suggested_title", { title: "" })}{" "}
@@ -641,6 +636,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 onAddModToCommunity={() => {}}
                 onAddAdmin={() => {}}
                 onTransferCommunity={() => {}}
+                onMarkPostAsRead={() => {}}
               />
             </>
           )
@@ -672,7 +668,6 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
           community_id: this.state.form.community_id,
           page: 1,
           limit: trendingFetchLimit,
-          auth: myAuth(),
         }),
       });
     }

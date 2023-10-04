@@ -1,8 +1,4 @@
-import {
-  editRegistrationApplication,
-  myAuthRequired,
-  setIsoData,
-} from "@utils/app";
+import { editRegistrationApplication, myAuth, setIsoData } from "@utils/app";
 import { randomStr } from "@utils/helpers";
 import { RouteDataResponse } from "@utils/types";
 import classNames from "classnames";
@@ -80,7 +76,7 @@ export class RegistrationApplications extends Component<
     const mui = UserService.Instance.myUserInfo;
     return mui
       ? `@${mui.local_user_view.person.name} ${I18NextService.i18n.t(
-          "registration_applications"
+          "registration_applications",
         )} - ${this.state.siteRes.site_view.site.name}`
       : "";
   }
@@ -110,6 +106,7 @@ export class RegistrationApplications extends Component<
               <Paginator
                 page={this.state.page}
                 onChange={this.handlePageChange}
+                nextDisabled={fetchLimit > apps.length}
               />
             </div>
           </div>
@@ -204,23 +201,21 @@ export class RegistrationApplications extends Component<
   }
 
   static async fetchInitialData({
-    auth,
     client,
   }: InitialFetchRequest): Promise<RegistrationApplicationsData> {
     return {
-      listRegistrationApplicationsResponse: auth
+      listRegistrationApplicationsResponse: myAuth()
         ? await client.listRegistrationApplications({
             unread_only: true,
             page: 1,
             limit: fetchLimit,
-            auth: auth as string,
           })
         : { state: "empty" },
     };
   }
 
   async refetch() {
-    const unread_only = this.state.unreadOrAll == UnreadOrAll.Unread;
+    const unread_only = this.state.unreadOrAll === UnreadOrAll.Unread;
     this.setState({
       appsRes: { state: "loading" },
     });
@@ -229,20 +224,19 @@ export class RegistrationApplications extends Component<
         unread_only: unread_only,
         page: this.state.page,
         limit: fetchLimit,
-        auth: myAuthRequired(),
       }),
     });
   }
 
   async handleApproveApplication(form: ApproveRegistrationApplication) {
     const approveRes = await HttpService.client.approveRegistrationApplication(
-      form
+      form,
     );
     this.setState(s => {
-      if (s.appsRes.state == "success" && approveRes.state == "success") {
+      if (s.appsRes.state === "success" && approveRes.state === "success") {
         s.appsRes.data.registration_applications = editRegistrationApplication(
           approveRes.data.registration_application,
-          s.appsRes.data.registration_applications
+          s.appsRes.data.registration_applications,
         );
       }
       return s;

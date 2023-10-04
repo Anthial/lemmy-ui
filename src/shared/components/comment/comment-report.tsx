@@ -1,4 +1,3 @@
-import { myAuthRequired } from "@utils/app";
 import { Component, InfernoNode, linkEvent } from "inferno";
 import { T } from "inferno-i18next-dess";
 import {
@@ -33,9 +32,9 @@ export class CommentReport extends Component<
   }
 
   componentWillReceiveProps(
-    nextProps: Readonly<{ children?: InfernoNode } & CommentReportProps>
+    nextProps: Readonly<{ children?: InfernoNode } & CommentReportProps>,
   ): void {
-    if (this.props != nextProps) {
+    if (this.props !== nextProps) {
       this.setState({ loading: false });
     }
   }
@@ -44,7 +43,7 @@ export class CommentReport extends Component<
     const r = this.props.report;
     const comment = r.comment;
     const tippyContent = I18NextService.i18n.t(
-      r.comment_report.resolved ? "unresolve_report" : "resolve_report"
+      r.comment_report.resolved ? "unresolve_report" : "resolve_report",
     );
 
     // Set the original post data ( a troll could change it )
@@ -149,7 +148,6 @@ export class CommentReport extends Component<
     i.props.onResolveReport({
       report_id: i.props.report.comment_report.id,
       resolved: !i.props.report.comment_report.resolved,
-      auth: myAuthRequired(),
     });
   }
 }

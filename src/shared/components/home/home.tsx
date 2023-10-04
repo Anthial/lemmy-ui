@@ -59,6 +59,7 @@ import {
   LockPost,
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
+  MarkPostAsRead,
   PostResponse,
   PurgeComment,
   PurgeItemResponse,
@@ -128,7 +129,6 @@ type HomeData = RouteDataResponse<{
 
 function getRss(listingType: ListingType) {
   const { sort } = getHomeQueryParams();
-  const auth = myAuth();
 
   let rss: string | undefined = undefined;
 
@@ -142,6 +142,7 @@ function getRss(listingType: ListingType) {
       break;
     }
     case "Subscribed": {
+      const auth = myAuth();
       rss = auth ? `/feeds/front/${auth}.xml?sort=${sort}` : undefined;
       break;
     }
@@ -268,6 +269,7 @@ export class Home extends Component<any, HomeState> {
     this.handleSavePost = this.handleSavePost.bind(this);
     this.handlePurgePost = this.handlePurgePost.bind(this);
     this.handleFeaturePost = this.handleFeaturePost.bind(this);
+    this.handleMarkPostAsRead = this.handleMarkPostAsRead.bind(this);
 
     // Only fetch the data if coming from another route
     if (FirstLoadService.isFirstLoad) {
@@ -285,9 +287,8 @@ export class Home extends Component<any, HomeState> {
       HomeCacheService.postsRes = postsRes;
     }
 
-    this.state.tagline = getRandomFromList(
-      this.state?.siteRes?.taglines ?? []
-    )?.content;
+    this.state.tagline = getRandomFromList(this.state?.siteRes?.taglines ?? [])
+      ?.content;
   }
 
   componentWillUnmount() {
@@ -298,7 +299,7 @@ export class Home extends Component<any, HomeState> {
     if (
       !this.state.isIsomorphic ||
       !Object.values(this.isoData.routeData).some(
-        res => res.state === "success" || res.state === "failed"
+        res => res.state === "success" || res.state === "failed",
       )
     ) {
       await Promise.all([this.fetchTrendingCommunities(), this.fetchData()]);
@@ -309,7 +310,6 @@ export class Home extends Component<any, HomeState> {
 
   static async fetchInitialData({
     client,
-    auth,
     query: { dataType: urlDataType, listingType, page: urlPage, sort: urlSort },
     site,
   }: InitialFetchRequest<QueryParams<HomeProps>>): Promise<HomeData> {
@@ -333,7 +333,6 @@ export class Home extends Component<any, HomeState> {
         limit: fetchLimit,
         sort,
         saved_only: false,
-        auth,
       };
 
       postsRes = await client.getPosts(getPostsForm);
@@ -344,7 +343,6 @@ export class Home extends Component<any, HomeState> {
         sort: postToCommentSortType(sort),
         type_,
         saved_only: false,
-        auth,
       };
 
       commentsRes = await client.getComments(getCommentsForm);
@@ -354,12 +352,11 @@ export class Home extends Component<any, HomeState> {
       type_: "Local",
       sort: "Hot",
       limit: trendingFetchLimit,
-      auth,
     };
 
     return {
       trendingCommunitiesRes: await client.listCommunities(
-        trendingCommunitiesForm
+        trendingCommunitiesForm,
       ),
       commentsRes,
       postsRes,
@@ -652,7 +649,14 @@ export class Home extends Component<any, HomeState> {
         <div>
           {this.selects}
           {this.listings}
-          <Paginator page={page} onChange={this.handlePageChange} />
+          <Paginator
+            page={page}
+            onChange={this.handlePageChange}
+            nextDisabled={
+              this.state.postsRes?.state !== "success" ||
+              fetchLimit > this.state.postsRes.data.posts.length
+            }
+          />
         </div>
       </div>
     );
@@ -699,6 +703,7 @@ export class Home extends Component<any, HomeState> {
               onAddAdmin={this.handleAddAdmin}
               onTransferCommunity={this.handleTransferCommunity}
               onFeaturePost={this.handleFeaturePost}
+              onMarkPostAsRead={this.handleMarkPostAsRead}
             />
           );
         }
@@ -718,7 +723,7 @@ export class Home extends Component<any, HomeState> {
               nodes={commentsToFlatNodes(comments)}
               viewType={CommentViewType.Flat}
               finished={this.state.finished}
-              noIndent
+              isTopLevel
               showCommunity
               showContext
               enableDownvotes={enableDownvotes(siteRes)}
@@ -777,7 +782,7 @@ export class Home extends Component<any, HomeState> {
         <div className="col-auto ps-0">
           {getRss(
             listingType ??
-              this.state.siteRes.site_view.local_site.default_post_listing_type
+              this.state.siteRes.site_view.local_site.default_post_listing_type,
           )}
         </div>
       </div>
@@ -791,13 +796,11 @@ export class Home extends Component<any, HomeState> {
         type_: "Local",
         sort: "Hot",
         limit: trendingFetchLimit,
-        auth: myAuth(),
       }),
     });
   }
 
   async fetchData() {
-    const auth = myAuth();
     const { dataType, page, listingType, sort } = getHomeQueryParams();
 
     if (dataType === DataType.Post) {
@@ -819,7 +822,6 @@ export class Home extends Component<any, HomeState> {
             sort,
             saved_only: false,
             type_: listingType,
-            auth,
           }),
         });
 
@@ -834,7 +836,6 @@ export class Home extends Component<any, HomeState> {
           sort: postToCommentSortType(sort),
           saved_only: false,
           type_: listingType,
-          auth,
         }),
       });
     }
@@ -900,7 +901,7 @@ export class Home extends Component<any, HomeState> {
 
   async handleBlockPerson(form: BlockPerson) {
     const blockPersonRes = await HttpService.client.blockPerson(form);
-    if (blockPersonRes.state == "success") {
+    if (blockPersonRes.state === "success") {
       updatePersonBlock(blockPersonRes.data);
     }
   }
@@ -971,14 +972,14 @@ export class Home extends Component<any, HomeState> {
 
   async handleCommentReport(form: CreateCommentReport) {
     const reportRes = await HttpService.client.createCommentReport(form);
-    if (reportRes.state == "success") {
+    if (reportRes.state === "success") {
       toast(I18NextService.i18n.t("report_created"));
     }
   }
 
   async handlePostReport(form: CreatePostReport) {
     const reportRes = await HttpService.client.createPostReport(form);
-    if (reportRes.state == "success") {
+    if (reportRes.state === "success") {
       toast(I18NextService.i18n.t("report_created"));
     }
   }
@@ -996,7 +997,7 @@ export class Home extends Component<any, HomeState> {
   async handleAddAdmin(form: AddAdmin) {
     const addAdminRes = await HttpService.client.addAdmin(form);
 
-    if (addAdminRes.state == "success") {
+    if (addAdminRes.state === "success") {
       this.setState(s => ((s.siteRes.admins = addAdminRes.data.admins), s));
     }
   }
@@ -1026,22 +1027,27 @@ export class Home extends Component<any, HomeState> {
     this.updateBan(banRes);
   }
 
+  async handleMarkPostAsRead(form: MarkPostAsRead) {
+    const res = await HttpService.client.markPostAsRead(form);
+    this.findAndUpdatePost(res);
+  }
+
   updateBanFromCommunity(banRes: RequestState<BanFromCommunityResponse>) {
     // Maybe not necessary
-    if (banRes.state == "success") {
+    if (banRes.state === "success") {
       this.setState(s => {
-        if (s.postsRes.state == "success") {
+        if (s.postsRes.state === "success") {
           s.postsRes.data.posts
-            .filter(c => c.creator.id == banRes.data.person_view.person.id)
+            .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(
-              c => (c.creator_banned_from_community = banRes.data.banned)
+              c => (c.creator_banned_from_community = banRes.data.banned),
             );
         }
-        if (s.commentsRes.state == "success") {
+        if (s.commentsRes.state === "success") {
           s.commentsRes.data.comments
-            .filter(c => c.creator.id == banRes.data.person_view.person.id)
+            .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(
-              c => (c.creator_banned_from_community = banRes.data.banned)
+              c => (c.creator_banned_from_community = banRes.data.banned),
             );
         }
         return s;
@@ -1051,16 +1057,16 @@ export class Home extends Component<any, HomeState> {
 
   updateBan(banRes: RequestState<BanPersonResponse>) {
     // Maybe not necessary
-    if (banRes.state == "success") {
+    if (banRes.state === "success") {
       this.setState(s => {
-        if (s.postsRes.state == "success") {
+        if (s.postsRes.state === "success") {
           s.postsRes.data.posts
-            .filter(c => c.creator.id == banRes.data.person_view.person.id)
+            .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(c => (c.creator.banned = banRes.data.banned));
         }
-        if (s.commentsRes.state == "success") {
+        if (s.commentsRes.state === "success") {
           s.commentsRes.data.comments
-            .filter(c => c.creator.id == banRes.data.person_view.person.id)
+            .filter(c => c.creator.id === banRes.data.person_view.person.id)
             .forEach(c => (c.creator.banned = banRes.data.banned));
         }
         return s;
@@ -1069,7 +1075,7 @@ export class Home extends Component<any, HomeState> {
   }
 
   purgeItem(purgeRes: RequestState<PurgeItemResponse>) {
-    if (purgeRes.state == "success") {
+    if (purgeRes.state === "success") {
       toast(I18NextService.i18n.t("purge_success"));
       this.context.router.history.push(`/`);
     }
@@ -1077,10 +1083,10 @@ export class Home extends Component<any, HomeState> {
 
   findAndUpdateComment(res: RequestState<CommentResponse>) {
     this.setState(s => {
-      if (s.commentsRes.state == "success" && res.state == "success") {
+      if (s.commentsRes.state === "success" && res.state === "success") {
         s.commentsRes.data.comments = editComment(
           res.data.comment_view,
-          s.commentsRes.data.comments
+          s.commentsRes.data.comments,
         );
         s.finished.set(res.data.comment_view.comment.id, true);
       }
@@ -1090,13 +1096,13 @@ export class Home extends Component<any, HomeState> {
 
   createAndUpdateComments(res: RequestState<CommentResponse>) {
     this.setState(s => {
-      if (s.commentsRes.state == "success" && res.state == "success") {
+      if (s.commentsRes.state === "success" && res.state === "success") {
         s.commentsRes.data.comments.unshift(res.data.comment_view);
 
         // Set finished for the parent
         s.finished.set(
           getCommentParentId(res.data.comment_view.comment) ?? 0,
-          true
+          true,
         );
       }
       return s;
@@ -1105,10 +1111,10 @@ export class Home extends Component<any, HomeState> {
 
   findAndUpdateCommentReply(res: RequestState<CommentReplyResponse>) {
     this.setState(s => {
-      if (s.commentsRes.state == "success" && res.state == "success") {
+      if (s.commentsRes.state === "success" && res.state === "success") {
         s.commentsRes.data.comments = editWith(
           res.data.comment_reply_view,
-          s.commentsRes.data.comments
+          s.commentsRes.data.comments,
         );
       }
       return s;
@@ -1117,10 +1123,10 @@ export class Home extends Component<any, HomeState> {
 
   findAndUpdatePost(res: RequestState<PostResponse>) {
     this.setState(s => {
-      if (s.postsRes.state == "success" && res.state == "success") {
+      if (s.postsRes.state === "success" && res.state === "success") {
         s.postsRes.data.posts = editPost(
           res.data.post_view,
-          s.postsRes.data.posts
+          s.postsRes.data.posts,
         );
       }
       return s;
