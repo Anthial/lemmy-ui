@@ -14,11 +14,7 @@ import {
   updateCommunityBlock,
   updatePersonBlock,
 } from "@utils/app";
-import {
-  getPageFromString,
-  getQueryParams,
-  getQueryString,
-} from "@utils/helpers";
+import { getQueryParams, getQueryString } from "@utils/helpers";
 import type { QueryParams } from "@utils/types";
 import { RouteDataResponse } from "@utils/types";
 import { Component, RefObject, createRef, linkEvent } from "inferno";
@@ -62,6 +58,7 @@ import {
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
   MarkPostAsRead,
+  PaginationCursor,
   PostResponse,
   PurgeComment,
   PurgeCommunity,
@@ -83,7 +80,12 @@ import {
   InitialFetchRequest,
 } from "../../interfaces";
 import { FirstLoadService, I18NextService, UserService } from "../../services";
-import { HttpService, RequestState } from "../../services/HttpService";
+import {
+  EMPTY_REQUEST,
+  HttpService,
+  LOADING_REQUEST,
+  RequestState,
+} from "../../services/HttpService";
 import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
 import { CommentNodes } from "../comment/comment-nodes";
@@ -91,12 +93,12 @@ import { BannerIconHeader } from "../common/banner-icon-header";
 import { DataTypeSelect } from "../common/data-type-select";
 import { HtmlTags } from "../common/html-tags";
 import { Icon, Spinner } from "../common/icon";
-import { Paginator } from "../common/paginator";
 import { SortSelect } from "../common/sort-select";
 import { Sidebar } from "../community/sidebar";
 import { SiteSidebar } from "../home/site-sidebar";
 import { PostListings } from "../post/post-listings";
 import { CommunityLink } from "./community-link";
+import { PaginatorCursor } from "../common/paginator-cursor";
 
 type CommunityData = RouteDataResponse<{
   communityRes: GetCommunityResponse;
@@ -117,13 +119,13 @@ interface State {
 interface CommunityProps {
   dataType: DataType;
   sort: SortType;
-  page: number;
+  pageCursor?: PaginationCursor;
 }
 
 function getCommunityQueryParams() {
   return getQueryParams<CommunityProps>({
     dataType: getDataTypeFromQuery,
-    page: getPageFromString,
+    pageCursor: cursor => cursor,
     sort: getSortTypeFromQuery,
   });
 }
@@ -146,9 +148,9 @@ export class Community extends Component<
 > {
   private isoData = setIsoData<CommunityData>(this.context);
   state: State = {
-    communityRes: { state: "empty" },
-    postsRes: { state: "empty" },
-    commentsRes: { state: "empty" },
+    communityRes: EMPTY_REQUEST,
+    postsRes: EMPTY_REQUEST,
+    commentsRes: EMPTY_REQUEST,
     siteRes: this.isoData.site_res,
     showSidebarMobile: false,
     finished: new Map(),
@@ -160,7 +162,8 @@ export class Community extends Component<
 
     this.handleSortChange = this.handleSortChange.bind(this);
     this.handleDataTypeChange = this.handleDataTypeChange.bind(this);
-    this.handlePageChange = this.handlePageChange.bind(this);
+    this.handlePageNext = this.handlePageNext.bind(this);
+    this.handlePagePrev = this.handlePagePrev.bind(this);
 
     // All of the action binds
     this.handleDeleteCommunity = this.handleDeleteCommunity.bind(this);
@@ -212,7 +215,7 @@ export class Community extends Component<
   }
 
   async fetchCommunity() {
-    this.setState({ communityRes: { state: "loading" } });
+    this.setState({ communityRes: LOADING_REQUEST });
     this.setState({
       communityRes: await HttpService.client.getCommunity({
         name: this.props.match.params.name,
@@ -231,7 +234,7 @@ export class Community extends Component<
   static async fetchInitialData({
     client,
     path,
-    query: { dataType: urlDataType, page: urlPage, sort: urlSort },
+    query: { dataType: urlDataType, pageCursor, sort: urlSort },
   }: InitialFetchRequest<QueryParams<CommunityProps>>): Promise<
     Promise<CommunityData>
   > {
@@ -246,17 +249,13 @@ export class Community extends Component<
 
     const sort = getSortTypeFromQuery(urlSort);
 
-    const page = getPageFromString(urlPage);
-
-    let postsResponse: RequestState<GetPostsResponse> = { state: "empty" };
-    let commentsResponse: RequestState<GetCommentsResponse> = {
-      state: "empty",
-    };
+    let postsResponse: RequestState<GetPostsResponse> = EMPTY_REQUEST;
+    let commentsResponse: RequestState<GetCommentsResponse> = EMPTY_REQUEST;
 
     if (dataType === DataType.Post) {
       const getPostsForm: GetPosts = {
         community_name: communityName,
-        page,
+        page_cursor: pageCursor,
         limit: fetchLimit,
         sort,
         type_: "All",
@@ -267,7 +266,6 @@ export class Community extends Component<
     } else {
       const getCommentsForm: GetComments = {
         community_name: communityName,
-        page,
         limit: fetchLimit,
         sort: postToCommentSortType(sort),
         type_: "All",
@@ -284,6 +282,12 @@ export class Community extends Component<
     };
   }
 
+  get getNextPage(): PaginationCursor | undefined {
+    return this.state.postsRes.state === "success"
+      ? this.state.postsRes.data.next_page
+      : undefined;
+  }
+
   get documentTitle(): string {
     const cRes = this.state.communityRes;
     return cRes.state === "success"
@@ -292,6 +296,7 @@ export class Community extends Component<
   }
 
   renderCommunity() {
+    const { pageCursor } = getCommunityQueryParams();
     switch (this.state.communityRes.state) {
       case "loading":
         return (
@@ -301,7 +306,6 @@ export class Community extends Component<
         );
       case "success": {
         const res = this.state.communityRes.data;
-        const { page } = getCommunityQueryParams();
 
         return (
           <>
@@ -338,13 +342,11 @@ export class Community extends Component<
                 </div>
                 {this.selects(res)}
                 {this.listings(res)}
-                <Paginator
-                  page={page}
-                  onChange={this.handlePageChange}
-                  nextDisabled={
-                    this.state.postsRes.state !== "success" ||
-                    fetchLimit > this.state.postsRes.data.posts.length
-                  }
+                <PaginatorCursor
+                  prevPage={pageCursor}
+                  nextPage={this.getNextPage}
+                  onNext={this.handlePageNext}
+                  onPrev={this.handlePagePrev}
                 />
               </main>
               <aside className="d-none d-md-block col-md-4 col-lg-3">
@@ -539,18 +541,22 @@ export class Community extends Component<
     );
   }
 
-  handlePageChange(page: number) {
-    this.updateUrl({ page });
+  handlePagePrev() {
+    this.props.history.back();
+  }
+
+  handlePageNext(nextPage: PaginationCursor) {
+    this.updateUrl({ pageCursor: nextPage });
     window.scrollTo(0, 0);
   }
 
   handleSortChange(sort: SortType) {
-    this.updateUrl({ sort, page: 1 });
+    this.updateUrl({ sort, pageCursor: undefined });
     window.scrollTo(0, 0);
   }
 
   handleDataTypeChange(dataType: DataType) {
-    this.updateUrl({ dataType, page: 1 });
+    this.updateUrl({ dataType, pageCursor: undefined });
     window.scrollTo(0, 0);
   }
 
@@ -560,16 +566,12 @@ export class Community extends Component<
     }));
   }
 
-  async updateUrl({ dataType, page, sort }: Partial<CommunityProps>) {
-    const {
-      dataType: urlDataType,
-      page: urlPage,
-      sort: urlSort,
-    } = getCommunityQueryParams();
+  async updateUrl({ dataType, pageCursor, sort }: Partial<CommunityProps>) {
+    const { dataType: urlDataType, sort: urlSort } = getCommunityQueryParams();
 
     const queryParams: QueryParams<CommunityProps> = {
       dataType: getDataTypeString(dataType ?? urlDataType),
-      page: (page ?? urlPage).toString(),
+      pageCursor: pageCursor,
       sort: sort ?? urlSort,
     };
 
@@ -581,14 +583,14 @@ export class Community extends Component<
   }
 
   async fetchData() {
-    const { dataType, page, sort } = getCommunityQueryParams();
+    const { dataType, pageCursor, sort } = getCommunityQueryParams();
     const { name } = this.props.match.params;
 
     if (dataType === DataType.Post) {
-      this.setState({ postsRes: { state: "loading" } });
+      this.setState({ postsRes: LOADING_REQUEST });
       this.setState({
         postsRes: await HttpService.client.getPosts({
-          page,
+          page_cursor: pageCursor,
           limit: fetchLimit,
           sort,
           type_: "All",
@@ -597,10 +599,9 @@ export class Community extends Component<
         }),
       });
     } else {
-      this.setState({ commentsRes: { state: "loading" } });
+      this.setState({ commentsRes: LOADING_REQUEST });
       this.setState({
         commentsRes: await HttpService.client.getComments({
-          page,
           limit: fetchLimit,
           sort: postToCommentSortType(sort),
           type_: "All",
