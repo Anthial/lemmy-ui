@@ -1,7 +1,12 @@
 import { ErrorPageData } from "@utils/types";
-import { CommentView, GetSiteResponse } from "lemmy-js-client";
-import type { ParsedQs } from "qs";
+import {
+  CommentReply,
+  CommentView,
+  GetSiteResponse,
+  PersonMention,
+} from "lemmy-js-client";
 import { RequestState } from "./services/HttpService";
+import { Match } from "inferno-router/dist/Route";
 
 /**
  * This contains serialized data, it needs to be deserialized before use.
@@ -21,12 +26,17 @@ export type IsoDataOptionalSite<T extends RouteData = any> = Partial<
 declare global {
   interface Window {
     isoData: IsoData;
+    checkLazyScripts?: () => void;
   }
 }
 
-export interface InitialFetchRequest<T extends ParsedQs = ParsedQs> {
+export interface InitialFetchRequest<
+  P extends Record<string, string> = Record<string, never>,
+  T extends Record<string, any> = Record<string, never>,
+> {
   path: string;
   query: T;
+  match: Match<P>;
   site: GetSiteResponse;
   headers: { [key: string]: string };
 }
@@ -76,8 +86,14 @@ export enum VoteContentType {
   Comment,
 }
 
+export type CommentNodeView = Omit<CommentView, "banned_from_community"> &
+  Partial<Pick<CommentView, "banned_from_community">> & {
+    person_mention?: PersonMention;
+    comment_reply?: CommentReply;
+  };
+
 export interface CommentNodeI {
-  comment_view: CommentView;
+  comment_view: CommentNodeView;
   children: Array<CommentNodeI>;
   depth: number;
 }

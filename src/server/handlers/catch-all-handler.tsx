@@ -3,6 +3,7 @@ import { getHttpBaseInternal } from "@utils/env";
 import { ErrorPageData } from "@utils/types";
 import type { Request, Response } from "express";
 import { StaticRouter, matchPath } from "inferno-router";
+import { Match } from "inferno-router/dist/Route";
 import { renderToString } from "inferno-server";
 import { GetSiteResponse, LemmyHttp } from "lemmy-js-client";
 import { App } from "../../shared/components/app/app";
@@ -20,10 +21,32 @@ import { createSsrHtml } from "../utils/create-ssr-html";
 import { getErrorPageData } from "../utils/get-error-page-data";
 import { setForwardedHeaders } from "../utils/set-forwarded-headers";
 import { getJwtCookie } from "../utils/has-jwt-cookie";
+import {
+  I18NextService,
+  LanguageService,
+  UserService,
+} from "../../shared/services/";
+import { parsePath } from "history";
+import { getQueryString } from "@utils/helpers";
 
 export default async (req: Request, res: Response) => {
   try {
-    const activeRoute = routes.find(route => matchPath(req.path, route));
+    const languages: string[] =
+      req.headers["accept-language"]
+        ?.split(",")
+        .map(x => {
+          const [head, tail] = x.split(/;\s*q?\s*=?/); // at ";", remove "q="
+          const q = Number(tail ?? 1); // no q means q=1
+          return { lang: head.trim(), q: Number.isNaN(q) ? 0 : q };
+        })
+        .filter(x => x.lang)
+        .sort((a, b) => b.q - a.q)
+        .map(x => (x.lang === "*" ? "en" : x.lang)) ?? [];
+
+    let match: Match<any> | null | undefined;
+    const activeRoute = routes.find(
+      route => (match = matchPath(req.path, route)),
+    );
 
     const headers = setForwardedHeaders(req.headers);
     const auth = getJwtCookie(req.headers);
@@ -32,7 +55,7 @@ export default async (req: Request, res: Response) => {
       new LemmyHttp(getHttpBaseInternal(), { headers }),
     );
 
-    const { path, url, query } = req;
+    const { path, url } = req;
 
     // Get site data first
     // This bypasses errors, so that the client can hit the error on its own,
@@ -54,25 +77,38 @@ export default async (req: Request, res: Response) => {
     }
 
     if (!auth && isAuthPath(path)) {
-      return res.redirect(`/login?prev=${encodeURIComponent(url)}`);
+      return res.redirect(`/login${getQueryString({ prev: url })}`);
     }
 
     if (try_site.state === "success") {
       site = try_site.data;
       initializeSite(site);
+      LanguageService.updateLanguages(languages);
 
       if (path !== "/setup" && !site.site_view.local_site.site_setup) {
         return res.redirect("/setup");
       }
 
-      if (site && activeRoute?.fetchInitialData) {
-        const initialFetchReq: InitialFetchRequest = {
+      if (site && activeRoute?.fetchInitialData && match) {
+        const { search } = parsePath(url);
+        const initialFetchReq: InitialFetchRequest<Record<string, any>> = {
           path,
-          query,
+          query: activeRoute.getQueryParams?.(search, site) ?? {},
+          match,
           site,
           headers,
         };
 
+        if (process.env.NODE_ENV === "development") {
+          setTimeout(() => {
+            // Intentionally (likely) break things if fetchInitialData tries to
+            // use global state after the first await of an unresolved promise.
+            // This simulates another request entering or leaving this
+            // "success" block.
+            UserService.Instance.myUserInfo = undefined;
+            I18NextService.i18n.changeLanguage("cimode");
+          });
+        }
         routeData = await activeRoute.fetchInitialData(initialFetchReq);
       }
 
@@ -114,9 +150,20 @@ export default async (req: Request, res: Response) => {
       </StaticRouter>
     );
 
+    // Another request could have initialized a new site.
+    initializeSite(site);
+    LanguageService.updateLanguages(languages);
+
     const root = renderToString(wrapper);
 
-    res.send(await createSsrHtml(root, isoData, res.locals.cspNonce));
+    res.send(
+      await createSsrHtml(
+        root,
+        isoData,
+        res.locals.cspNonce,
+        LanguageService.userLanguages,
+      ),
+    );
   } catch (err) {
     // If an error is caught here, the error page couldn't even be rendered
     console.error(err);

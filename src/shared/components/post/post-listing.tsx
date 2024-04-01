@@ -177,7 +177,10 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         {this.state.viewSource ? (
           <pre>{body}</pre>
         ) : (
-          <div className="md-div" dangerouslySetInnerHTML={mdToHtml(body)} />
+          <div
+            className="md-div"
+            dangerouslySetInnerHTML={mdToHtml(body, () => this.forceUpdate())}
+          />
         )}
       </article>
     ) : (
@@ -544,14 +547,8 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   }
 
   commentsLine(mobile = false) {
-    const {
-      admins,
-      moderators,
-      viewOnly,
-      showBody,
-      onPostVote,
-      enableDownvotes,
-    } = this.props;
+    const { admins, moderators, showBody, onPostVote, enableDownvotes } =
+      this.props;
     const {
       post: { ap_id, id, body },
       counts,
@@ -577,7 +574,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         >
           <Icon icon="fedilink" inline />
         </a>
-        {mobile && !viewOnly && (
+        {mobile && this.isInteractable && (
           <VoteButtonsCompact
             voteContentType={VoteContentType.Post}
             id={id}
@@ -590,7 +587,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
         {showBody && body && this.viewSourceButton}
 
-        {UserService.Instance.myUserInfo && !viewOnly && (
+        {UserService.Instance.myUserInfo && this.isInteractable && (
           <PostActionDropdown
             postView={this.postView}
             admins={admins}
@@ -731,7 +728,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         {/* The larger view*/}
         <div className="d-none d-sm-block">
           <article className="row post-container">
-            {!this.props.viewOnly && (
+            {this.isInteractable && (
               <div className="col flex-grow-0">
                 <VoteButtons
                   voteContentType={VoteContentType.Post}
@@ -1043,5 +1040,14 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
   get canAdmin(): boolean {
     return canAdmin(this.postView.creator.id, this.props.admins);
+  }
+
+  get isInteractable() {
+    const {
+      viewOnly,
+      post_view: { banned_from_community },
+    } = this.props;
+
+    return !(viewOnly || banned_from_community);
   }
 }
