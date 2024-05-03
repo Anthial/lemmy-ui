@@ -18,6 +18,7 @@ import {
   EditPost,
   GetSiteMetadataResponse,
   Language,
+  LocalUserVoteDisplayMode,
   PostView,
   SearchResponse,
 } from "lemmy-js-client";
@@ -37,7 +38,6 @@ import {
   LOADING_REQUEST,
   RequestState,
 } from "../../services/HttpService";
-import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
 import { Icon, Spinner } from "../common/icon";
 import { LanguageSelect } from "../common/language-select";
@@ -58,6 +58,7 @@ interface PostFormProps {
   onEdit?(form: EditPost): void;
   enableNsfw?: boolean;
   enableDownvotes?: boolean;
+  voteDisplayMode: LocalUserVoteDisplayMode;
   selectedCommunityChoice?: Choice;
   onSelectCommunity?: (choice: Choice) => void;
   initialCommunities?: CommunityView[];
@@ -306,7 +307,6 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   }
 
   componentDidMount() {
-    setupTippy();
     const textarea: any = document.getElementById("post-title");
 
     if (textarea) {
@@ -455,6 +455,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 showCommunity
                 posts={this.props.crossPosts}
                 enableDownvotes={this.props.enableDownvotes}
+                voteDisplayMode={this.props.voteDisplayMode}
                 enableNsfw={this.props.enableNsfw}
                 allLanguages={this.props.allLanguages}
                 siteLanguages={this.props.siteLanguages}
@@ -477,6 +478,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 onAddAdmin={async () => {}}
                 onTransferCommunity={async () => {}}
                 onMarkPostAsRead={async () => {}}
+                onHidePost={async () => {}}
               />
             </>
           )}
@@ -668,6 +670,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 showCommunity
                 posts={suggestedPosts}
                 enableDownvotes={this.props.enableDownvotes}
+                voteDisplayMode={this.props.voteDisplayMode}
                 enableNsfw={this.props.enableNsfw}
                 allLanguages={this.props.allLanguages}
                 siteLanguages={this.props.siteLanguages}
@@ -690,6 +693,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 onAddAdmin={async () => {}}
                 onTransferCommunity={async () => {}}
                 onMarkPostAsRead={async () => {}}
+                onHidePost={async () => {}}
               />
             </>
           )

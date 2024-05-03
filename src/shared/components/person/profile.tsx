@@ -7,8 +7,9 @@ import {
   getCommentParentId,
   setIsoData,
   updatePersonBlock,
+  voteDisplayMode,
 } from "@utils/app";
-import { restoreScrollPosition, saveScrollPosition } from "@utils/browser";
+import { scrollMixin } from "../mixins/scroll-mixin";
 import {
   capitalizeFirstLetter,
   futureDaysToUnixTime,
@@ -17,8 +18,9 @@ import {
   getQueryString,
   numToSI,
   randomStr,
+  resourcesSettled,
 } from "@utils/helpers";
-import { canMod, isBanned } from "@utils/roles";
+import { canMod } from "@utils/roles";
 import type { QueryParams } from "@utils/types";
 import { RouteDataResponse } from "@utils/types";
 import classNames from "classnames";
@@ -55,6 +57,8 @@ import {
   GetPersonDetailsResponse,
   GetSiteResponse,
   LemmyHttp,
+  ListMedia,
+  ListMediaResponse,
   LockPost,
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
@@ -82,7 +86,6 @@ import {
   RequestState,
   wrapClient,
 } from "../../services/HttpService";
-import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
 import { BannerIconHeader } from "../common/banner-icon-header";
 import { HtmlTags } from "../common/html-tags";
@@ -95,13 +98,16 @@ import { PersonDetails } from "./person-details";
 import { PersonListing } from "./person-listing";
 import { getHttpBaseInternal } from "../../utils/env";
 import { IRoutePropsWithFetch } from "../../routes";
+import { MediaUploads } from "../common/media-uploads";
 
 type ProfileData = RouteDataResponse<{
-  personResponse: GetPersonDetailsResponse;
+  personRes: GetPersonDetailsResponse;
+  uploadsRes: ListMediaResponse;
 }>;
 
 interface ProfileState {
   personRes: RequestState<GetPersonDetailsResponse>;
+  uploadsRes: RequestState<ListMediaResponse>;
   personBlocked: boolean;
   banReason?: string;
   banExpireDays?: number;
@@ -183,10 +189,12 @@ export type ProfileFetchConfig = IRoutePropsWithFetch<
   ProfileProps
 >;
 
+@scrollMixin
 export class Profile extends Component<ProfileRouteProps, ProfileState> {
   private isoData = setIsoData<ProfileData>(this.context);
   state: ProfileState = {
     personRes: EMPTY_REQUEST,
+    uploadsRes: EMPTY_REQUEST,
     personBlocked: false,
     siteRes: this.isoData.site_res,
     showBanDialog: false,
@@ -194,6 +202,10 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
     finished: new Map(),
     isIsomorphic: false,
   };
+
+  loadingSettled() {
+    return resourcesSettled([this.state.personRes]);
+  }
 
   constructor(props: ProfileRouteProps, context: any) {
     super(props, context);
@@ -235,10 +247,12 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
 
     // Only fetch the data if coming from another route
     if (FirstLoadService.isFirstLoad) {
-      const personRes = this.isoData.routeData.personResponse;
+      const personRes = this.isoData.routeData.personRes;
+      const uploadsRes = this.isoData.routeData.uploadsRes;
       this.state = {
         ...this.state,
         personRes,
+        uploadsRes,
         isIsomorphic: true,
         personBlocked: isPersonBlocked(personRes),
       };
@@ -249,11 +263,6 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
     if (!this.state.isIsomorphic) {
       await this.fetchUserData();
     }
-    setupTippy();
-  }
-
-  componentWillUnmount() {
-    saveScrollPosition(this.context);
   }
 
   async fetchUserData() {
@@ -267,11 +276,21 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
       page,
       limit: fetchLimit,
     });
+
     this.setState({
       personRes,
       personBlocked: isPersonBlocked(personRes),
     });
-    restoreScrollPosition(this.context);
+
+    if (view === PersonDetailsView.Uploads) {
+      this.setState({ uploadsRes: LOADING_REQUEST });
+      const form: ListMedia = {
+        page,
+        limit: fetchLimit,
+      };
+      const uploadsRes = await HttpService.client.listMedia(form);
+      this.setState({ uploadsRes });
+    }
   }
 
   get amCurrentUser() {
@@ -299,6 +318,16 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
       new LemmyHttp(getHttpBaseInternal(), { headers }),
     );
 
+    let uploadsRes: RequestState<ListMediaResponse> = EMPTY_REQUEST;
+
+    if (view === PersonDetailsView.Uploads) {
+      const form: ListMedia = {
+        page,
+        limit: fetchLimit,
+      };
+      uploadsRes = await client.listMedia(form);
+    }
+
     const form: GetPersonDetails = {
       username: username,
       sort,
@@ -306,9 +335,11 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
       page,
       limit: fetchLimit,
     };
+    const personRes = await client.getPersonDetails(form);
 
     return {
-      personResponse: await client.getPersonDetails(form),
+      personRes,
+      uploadsRes,
     };
   }
 
@@ -318,6 +349,25 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
     return res.state === "success"
       ? `@${res.data.person_view.person.name} - ${siteName}`
       : siteName;
+  }
+
+  renderUploadsRes() {
+    switch (this.state.uploadsRes.state) {
+      case "loading":
+        return (
+          <h5>
+            <Spinner large />
+          </h5>
+        );
+      case "success": {
+        const uploadsRes = this.state.uploadsRes.data;
+        return (
+          <div>
+            <MediaUploads uploads={uploadsRes} />
+          </div>
+        );
+      }
+    }
   }
 
   renderPersonRes() {
@@ -350,6 +400,8 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
 
               {this.selects}
 
+              {this.renderUploadsRes()}
+
               <PersonDetails
                 personRes={personRes}
                 admins={siteRes.admins}
@@ -358,6 +410,7 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
                 limit={fetchLimit}
                 finished={this.state.finished}
                 enableDownvotes={enableDownvotes(siteRes)}
+                voteDisplayMode={voteDisplayMode(siteRes)}
                 enableNsfw={enableNsfw(siteRes)}
                 view={view}
                 onPageChange={this.handlePageChange}
@@ -415,11 +468,12 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
 
   get viewRadios() {
     return (
-      <div className="btn-group btn-group-toggle flex-wrap mb-2" role="group">
+      <div className="btn-group btn-group-toggle flex-wrap" role="group">
         {this.getRadio(PersonDetailsView.Overview)}
         {this.getRadio(PersonDetailsView.Comments)}
         {this.getRadio(PersonDetailsView.Posts)}
         {this.amCurrentUser && this.getRadio(PersonDetailsView.Saved)}
+        {this.getRadio(PersonDetailsView.Uploads)}
       </div>
     );
   }
@@ -452,24 +506,35 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
   }
 
   get selects() {
-    const { sort } = this.props;
+    const { sort, view } = this.props;
     const { username } = this.props.match.params;
 
     const profileRss = `/feeds/u/${username}.xml${getQueryString({ sort })}`;
 
     return (
-      <div className="mb-2">
-        <span className="me-3">{this.viewRadios}</span>
-        <SortSelect
-          sort={sort}
-          onChange={this.handleSortChange}
-          hideHot
-          hideMostComments
-        />
-        <a href={profileRss} rel={relTags} title="RSS">
-          <Icon icon="rss" classes="text-muted small mx-2" />
-        </a>
-        <link rel="alternate" type="application/atom+xml" href={profileRss} />
+      <div className="row align-items-center mb-3 g-3">
+        <div className="col-auto">{this.viewRadios}</div>
+        <div className="col-auto">
+          <SortSelect
+            sort={sort}
+            onChange={this.handleSortChange}
+            hideHot
+            hideMostComments
+          />
+        </div>
+        {/* Don't show the rss feed for the Saved view, as that's not implemented.*/}
+        {view !== PersonDetailsView.Saved && (
+          <div className="col-auto">
+            <a href={profileRss} rel={relTags} title="RSS">
+              <Icon icon="rss" classes="text-muted small ps-0" />
+            </a>
+            <link
+              rel="alternate"
+              type="application/atom+xml"
+              href={profileRss}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -484,7 +549,7 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
     return (
       pv && (
         <div>
-          {!isBanned(pv.person) && (
+          {!pv.person.banned && (
             <BannerIconHeader
               banner={pv.person.banner}
               icon={pv.person.avatar}
@@ -510,7 +575,7 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
                     <li className="list-inline-item">
                       <UserBadges
                         classNames="ms-1"
-                        isBanned={isBanned(pv.person)}
+                        isBanned={pv.person.banned}
                         isDeleted={pv.person.deleted}
                         isAdmin={pv.is_admin}
                         isBot={pv.person.bot_account}
@@ -570,7 +635,7 @@ export class Profile extends Component<ProfileRouteProps, ProfileState> {
                 {canMod(pv.person.id, undefined, admins) &&
                   !pv.is_admin &&
                   !showBanDialog &&
-                  (!isBanned(pv.person) ? (
+                  (!pv.person.banned ? (
                     <button
                       className={
                         "d-flex align-self-start btn btn-secondary me-2"

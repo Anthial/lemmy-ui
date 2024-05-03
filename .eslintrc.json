@@ -21,6 +21,10 @@
     "@typescript-eslint/explicit-module-boundary-types": 0,
     "@typescript-eslint/no-empty-function": 0,
     "@typescript-eslint/no-non-null-assertion": 0,
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_" }
+    ],
     "arrow-body-style": 0,
     "curly": 0,
     "eol-last": 0,
@@ -45,6 +49,7 @@
     "prettier/prettier": "error",
     "quote-props": 0,
     "unicorn/filename-case": 0,
-    "jsx-a11y/media-has-caption": 0
+    "jsx-a11y/media-has-caption": 0,
+    "jsx-a11y/label-has-associated-control": 0
   }
 }

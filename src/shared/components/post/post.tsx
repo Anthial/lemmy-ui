@@ -12,13 +12,16 @@ import {
   setIsoData,
   updateCommunityBlock,
   updatePersonBlock,
+  voteDisplayMode,
 } from "@utils/app";
+import { isBrowser } from "@utils/browser";
 import {
-  isBrowser,
-  restoreScrollPosition,
-  saveScrollPosition,
-} from "@utils/browser";
-import { debounce, getApubName, randomStr } from "@utils/helpers";
+  debounce,
+  getApubName,
+  randomStr,
+  resourcesSettled,
+} from "@utils/helpers";
+import { scrollMixin } from "../mixins/scroll-mixin";
 import { isImage } from "@utils/media";
 import { RouteDataResponse } from "@utils/types";
 import autosize from "autosize";
@@ -59,6 +62,7 @@ import {
   GetPost,
   GetPostResponse,
   GetSiteResponse,
+  HidePost,
   LemmyHttp,
   LockPost,
   MarkCommentReplyAsRead,
@@ -89,7 +93,6 @@ import {
   RequestState,
   wrapClient,
 } from "../../services/HttpService";
-import { setupTippy } from "../../tippy";
 import { toast } from "../../toast";
 import { CommentForm } from "../comment/comment-form";
 import { CommentNodes } from "../comment/comment-nodes";
@@ -135,6 +138,7 @@ export type PostFetchConfig = IRoutePropsWithFetch<
   Record<string, never>
 >;
 
+@scrollMixin
 export class Post extends Component<PostRouteProps, PostState> {
   private isoData = setIsoData<PostData>(this.context);
   private commentScrollDebounced: () => void;
@@ -152,6 +156,10 @@ export class Post extends Component<PostRouteProps, PostState> {
     finished: new Map(),
     isIsomorphic: false,
   };
+
+  loadingSettled() {
+    return resourcesSettled([this.state.postRes, this.state.commentsRes]);
+  }
 
   constructor(props: any, context: any) {
     super(props, context);
@@ -189,6 +197,9 @@ export class Post extends Component<PostRouteProps, PostState> {
     this.handleSavePost = this.handleSavePost.bind(this);
     this.handlePurgePost = this.handlePurgePost.bind(this);
     this.handleFeaturePost = this.handleFeaturePost.bind(this);
+    this.handleHidePost = this.handleHidePost.bind(this);
+    this.handleScrollIntoCommentsClick =
+      this.handleScrollIntoCommentsClick.bind(this);
 
     this.state = { ...this.state, commentSectionRef: createRef() };
 
@@ -237,10 +248,6 @@ export class Post extends Component<PostRouteProps, PostState> {
       commentsRes,
     });
 
-    setupTippy();
-
-    if (!this.state.commentId) restoreScrollPosition(this.context);
-
     if (this.checkScrollIntoCommentsParam) {
       this.scrollIntoCommentSection();
     }
@@ -284,8 +291,6 @@ export class Post extends Component<PostRouteProps, PostState> {
 
   componentWillUnmount() {
     document.removeEventListener("scroll", this.commentScrollDebounced);
-
-    saveScrollPosition(this.context);
   }
 
   async componentDidMount() {
@@ -299,16 +304,16 @@ export class Post extends Component<PostRouteProps, PostState> {
     document.addEventListener("scroll", this.commentScrollDebounced);
   }
 
-  async componentDidUpdate(_lastProps: any) {
-    // Necessary if you are on a post and you click another post (same route)
-    if (_lastProps.location.pathname !== _lastProps.history.location.pathname) {
-      await this.fetchPost();
-    }
+  handleScrollIntoCommentsClick(e: MouseEvent) {
+    this.scrollIntoCommentSection();
+    e.preventDefault();
   }
 
   get checkScrollIntoCommentsParam() {
-    return Boolean(
-      new URLSearchParams(this.props.location.search).get("scrollToComments"),
+    return (
+      Boolean(
+        new URLSearchParams(this.props.location.search).get("scrollToComments"),
+      ) && this.props.history.action !== "POP"
     );
   }
 
@@ -365,6 +370,7 @@ export class Post extends Component<PostRouteProps, PostState> {
         );
       case "success": {
         const res = this.state.postRes.data;
+        const siteRes = this.state.siteRes;
         return (
           <div className="row">
             <main className="col-12 col-md-8 col-lg-9 mb-3">
@@ -381,11 +387,12 @@ export class Post extends Component<PostRouteProps, PostState> {
                 showBody
                 showCommunity
                 moderators={res.moderators}
-                admins={this.state.siteRes.admins}
-                enableDownvotes={enableDownvotes(this.state.siteRes)}
-                enableNsfw={enableNsfw(this.state.siteRes)}
-                allLanguages={this.state.siteRes.all_languages}
-                siteLanguages={this.state.siteRes.discussion_languages}
+                admins={siteRes.admins}
+                enableDownvotes={enableDownvotes(siteRes)}
+                voteDisplayMode={voteDisplayMode(siteRes)}
+                enableNsfw={enableNsfw(siteRes)}
+                allLanguages={siteRes.all_languages}
+                siteLanguages={siteRes.discussion_languages}
                 onBlockPerson={this.handleBlockPerson}
                 onPostEdit={this.handlePostEdit}
                 onPostVote={this.handlePostVote}
@@ -403,6 +410,8 @@ export class Post extends Component<PostRouteProps, PostState> {
                 onTransferCommunity={this.handleTransferCommunity}
                 onFeaturePost={this.handleFeaturePost}
                 onMarkPostAsRead={() => {}}
+                onHidePost={this.handleHidePost}
+                onScrollIntoCommentsClick={this.handleScrollIntoCommentsClick}
               />
               <div ref={this.state.commentSectionRef} className="mb-2" />
 
@@ -413,8 +422,8 @@ export class Post extends Component<PostRouteProps, PostState> {
                 <CommentForm
                   node={res.post_view.post.id}
                   disabled={res.post_view.post.locked}
-                  allLanguages={this.state.siteRes.all_languages}
-                  siteLanguages={this.state.siteRes.discussion_languages}
+                  allLanguages={siteRes.all_languages}
+                  siteLanguages={siteRes.discussion_languages}
                   containerClass="post-comment-container"
                   onUpsertComment={this.handleCreateComment}
                   finished={this.state.finished.get(0)}
@@ -575,6 +584,7 @@ export class Post extends Component<PostRouteProps, PostState> {
     // These are already sorted by new
     const commentsRes = this.state.commentsRes;
     const postRes = this.state.postRes;
+    const siteRes = this.state.siteRes;
 
     if (commentsRes.state === "success" && postRes.state === "success") {
       return (
@@ -586,12 +596,13 @@ export class Post extends Component<PostRouteProps, PostState> {
             isTopLevel
             locked={postRes.data.post_view.post.locked}
             moderators={postRes.data.moderators}
-            admins={this.state.siteRes.admins}
-            enableDownvotes={enableDownvotes(this.state.siteRes)}
+            admins={siteRes.admins}
+            enableDownvotes={enableDownvotes(siteRes)}
+            voteDisplayMode={voteDisplayMode(siteRes)}
             showContext
             finished={this.state.finished}
-            allLanguages={this.state.siteRes.all_languages}
-            siteLanguages={this.state.siteRes.discussion_languages}
+            allLanguages={siteRes.all_languages}
+            siteLanguages={siteRes.discussion_languages}
             onSaveComment={this.handleSaveComment}
             onBlockPerson={this.handleBlockPerson}
             onDeleteComment={this.handleDeleteComment}
@@ -646,6 +657,7 @@ export class Post extends Component<PostRouteProps, PostState> {
     const firstComment = this.commentTree().at(0)?.comment_view.comment;
     const depth = getDepthFromComment(firstComment);
     const showContextButton = depth ? depth > 0 : false;
+    const siteRes = this.state.siteRes;
 
     return (
       res.state === "success" && (
@@ -674,11 +686,12 @@ export class Post extends Component<PostRouteProps, PostState> {
             maxCommentsShown={this.state.maxCommentsShown}
             locked={res.data.post_view.post.locked}
             moderators={res.data.moderators}
-            admins={this.state.siteRes.admins}
-            enableDownvotes={enableDownvotes(this.state.siteRes)}
+            admins={siteRes.admins}
+            enableDownvotes={enableDownvotes(siteRes)}
+            voteDisplayMode={voteDisplayMode(siteRes)}
             finished={this.state.finished}
-            allLanguages={this.state.siteRes.all_languages}
-            siteLanguages={this.state.siteRes.discussion_languages}
+            allLanguages={siteRes.all_languages}
+            siteLanguages={siteRes.discussion_languages}
             onSaveComment={this.handleSaveComment}
             onBlockPerson={this.handleBlockPerson}
             onDeleteComment={this.handleDeleteComment}
@@ -1038,6 +1051,22 @@ export class Post extends Component<PostRouteProps, PostState> {
           },
         ),
       );
+    }
+  }
+
+  async handleHidePost(form: HidePost) {
+    const hideRes = await HttpService.client.hidePost(form);
+
+    if (hideRes.state === "success") {
+      this.setState(s => {
+        if (s.postRes.state === "success") {
+          s.postRes.data.post_view.hidden = form.hide;
+        }
+
+        return s;
+      });
+
+      toast(I18NextService.i18n.t(form.hide ? "post_hidden" : "post_unhidden"));
     }
   }
 

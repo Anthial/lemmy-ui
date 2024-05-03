@@ -10,8 +10,9 @@ import {
   personToChoice,
   setIsoData,
   showLocal,
+  voteDisplayMode,
 } from "@utils/app";
-import { restoreScrollPosition, saveScrollPosition } from "@utils/browser";
+import { scrollMixin } from "./mixins/scroll-mixin";
 import {
   capitalizeFirstLetter,
   debounce,
@@ -21,6 +22,7 @@ import {
   getQueryParams,
   getQueryString,
   numToSI,
+  resourcesSettled,
 } from "@utils/helpers";
 import type { QueryParams } from "@utils/types";
 import { Choice, RouteDataResponse } from "@utils/types";
@@ -253,6 +255,7 @@ export type SearchFetchConfig = IRoutePropsWithFetch<
   SearchProps
 >;
 
+@scrollMixin
 export class Search extends Component<SearchRouteProps, SearchState> {
   private isoData = setIsoData<SearchData>(this.context);
   searchInput = createRef<HTMLInputElement>();
@@ -267,6 +270,10 @@ export class Search extends Component<SearchRouteProps, SearchState> {
     searchCommunitiesLoading: false,
     isIsomorphic: false,
   };
+
+  loadingSettled() {
+    return resourcesSettled([this.state.searchRes]);
+  }
 
   constructor(props: SearchRouteProps, context: any) {
     super(props, context);
@@ -323,7 +330,9 @@ export class Search extends Component<SearchRouteProps, SearchState> {
   }
 
   async componentDidMount() {
-    this.searchInput.current?.select();
+    if (this.props.history.action !== "POP") {
+      this.searchInput.current?.select();
+    }
 
     if (!this.state.isIsomorphic) {
       this.setState({
@@ -395,10 +404,6 @@ export class Search extends Component<SearchRouteProps, SearchState> {
         searchCreatorLoading: false,
       });
     }
-  }
-
-  componentWillUnmount() {
-    saveScrollPosition(this.context);
   }
 
   static async fetchInitialData({
@@ -703,6 +708,7 @@ export class Search extends Component<SearchRouteProps, SearchState> {
 
   get all() {
     const combined = this.buildCombined();
+    const siteRes = this.state.siteRes;
 
     return (
       <div>
@@ -714,10 +720,11 @@ export class Search extends Component<SearchRouteProps, SearchState> {
                   key={(i.data as PostView).post.id}
                   post_view={i.data as PostView}
                   showCommunity
-                  enableDownvotes={enableDownvotes(this.state.siteRes)}
-                  enableNsfw={enableNsfw(this.state.siteRes)}
-                  allLanguages={this.state.siteRes.all_languages}
-                  siteLanguages={this.state.siteRes.discussion_languages}
+                  enableDownvotes={enableDownvotes(siteRes)}
+                  voteDisplayMode={voteDisplayMode(siteRes)}
+                  enableNsfw={enableNsfw(siteRes)}
+                  allLanguages={siteRes.all_languages}
+                  siteLanguages={siteRes.discussion_languages}
                   viewOnly
                   // All of these are unused, since its view only
                   onPostEdit={async () => EMPTY_REQUEST}
@@ -737,6 +744,7 @@ export class Search extends Component<SearchRouteProps, SearchState> {
                   onAddAdmin={async () => {}}
                   onTransferCommunity={async () => {}}
                   onMarkPostAsRead={async () => {}}
+                  onHidePost={async () => {}}
                 />
               )}
               {i.type_ === "comments" && (
@@ -753,9 +761,10 @@ export class Search extends Component<SearchRouteProps, SearchState> {
                   viewOnly
                   locked
                   isTopLevel
-                  enableDownvotes={enableDownvotes(this.state.siteRes)}
-                  allLanguages={this.state.siteRes.all_languages}
-                  siteLanguages={this.state.siteRes.discussion_languages}
+                  enableDownvotes={enableDownvotes(siteRes)}
+                  voteDisplayMode={voteDisplayMode(siteRes)}
+                  allLanguages={siteRes.all_languages}
+                  siteLanguages={siteRes.discussion_languages}
                   // All of these are unused, since its viewonly
                   finished={new Map()}
                   onSaveComment={async () => {}}
@@ -815,6 +824,7 @@ export class Search extends Component<SearchRouteProps, SearchState> {
         locked
         isTopLevel
         enableDownvotes={enableDownvotes(siteRes)}
+        voteDisplayMode={voteDisplayMode(siteRes)}
         allLanguages={siteRes.all_languages}
         siteLanguages={siteRes.discussion_languages}
         // All of these are unused, since its viewonly
@@ -866,6 +876,7 @@ export class Search extends Component<SearchRouteProps, SearchState> {
                 post_view={pv}
                 showCommunity
                 enableDownvotes={enableDownvotes(siteRes)}
+                voteDisplayMode={voteDisplayMode(siteRes)}
                 enableNsfw={enableNsfw(siteRes)}
                 allLanguages={siteRes.all_languages}
                 siteLanguages={siteRes.discussion_languages}
@@ -888,6 +899,7 @@ export class Search extends Component<SearchRouteProps, SearchState> {
                 onAddAdmin={async () => {}}
                 onTransferCommunity={async () => {}}
                 onMarkPostAsRead={() => {}}
+                onHidePost={async () => {}}
               />
             </div>
           </div>
@@ -991,8 +1003,6 @@ export class Search extends Component<SearchRouteProps, SearchState> {
           limit: fetchLimit,
         }),
       });
-      window.scrollTo(0, 0);
-      restoreScrollPosition(this.context);
 
       if (myAuth()) {
         this.setState({ resolveObjectRes: LOADING_REQUEST });
@@ -1069,14 +1079,14 @@ export class Search extends Component<SearchRouteProps, SearchState> {
 
   handleCommunityFilterChange({ value }: Choice) {
     this.updateUrl({
-      communityId: getIdFromString(value),
+      communityId: getIdFromString(value) ?? 0,
       page: 1,
     });
   }
 
   handleCreatorFilterChange({ value }: Choice) {
     this.updateUrl({
-      creatorId: getIdFromString(value),
+      creatorId: getIdFromString(value) ?? 0,
       page: 1,
     });
   }

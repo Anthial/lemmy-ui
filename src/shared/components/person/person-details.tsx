@@ -23,6 +23,7 @@ import {
   GetComments,
   GetPersonDetailsResponse,
   Language,
+  LocalUserVoteDisplayMode,
   LockPost,
   MarkCommentReplyAsRead,
   MarkPersonMentionAsRead,
@@ -41,7 +42,6 @@ import {
   TransferCommunity,
 } from "lemmy-js-client";
 import { CommentViewType, PersonDetailsView } from "../../interfaces";
-import { setupTippy } from "../../tippy";
 import { CommentNodes } from "../comment/comment-nodes";
 import { Paginator } from "../common/paginator";
 import { PostListing } from "../post/post-listing";
@@ -57,6 +57,7 @@ interface PersonDetailsProps {
   limit: number;
   sort: SortType;
   enableDownvotes: boolean;
+  voteDisplayMode: LocalUserVoteDisplayMode;
   enableNsfw: boolean;
   view: PersonDetailsView;
   onPageChange(page: number): number | any;
@@ -109,10 +110,6 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
     this.handlePageChange = this.handlePageChange.bind(this);
   }
 
-  componentDidMount() {
-    setupTippy();
-  }
-
   render() {
     return (
       <div className="person-details">
@@ -162,6 +159,7 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
             showCommunity
             showContext
             enableDownvotes={this.props.enableDownvotes}
+            voteDisplayMode={this.props.voteDisplayMode}
             allLanguages={this.props.allLanguages}
             siteLanguages={this.props.siteLanguages}
             onCommentReplyRead={this.props.onCommentReplyRead}
@@ -195,6 +193,7 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
             admins={this.props.admins}
             showCommunity
             enableDownvotes={this.props.enableDownvotes}
+            voteDisplayMode={this.props.voteDisplayMode}
             enableNsfw={this.props.enableNsfw}
             allLanguages={this.props.allLanguages}
             siteLanguages={this.props.siteLanguages}
@@ -215,6 +214,7 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
             onAddAdmin={this.props.onAddAdmin}
             onTransferCommunity={this.props.onTransferCommunity}
             onMarkPostAsRead={this.props.onMarkPostAsRead}
+            onHidePost={async () => {}}
           />
         );
       }
@@ -271,6 +271,7 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
           showCommunity
           showContext
           enableDownvotes={this.props.enableDownvotes}
+          voteDisplayMode={this.props.voteDisplayMode}
           allLanguages={this.props.allLanguages}
           siteLanguages={this.props.siteLanguages}
           onCommentReplyRead={this.props.onCommentReplyRead}
@@ -307,6 +308,7 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
               admins={this.props.admins}
               showCommunity
               enableDownvotes={this.props.enableDownvotes}
+              voteDisplayMode={this.props.voteDisplayMode}
               enableNsfw={this.props.enableNsfw}
               allLanguages={this.props.allLanguages}
               siteLanguages={this.props.siteLanguages}
@@ -327,6 +329,7 @@ export class PersonDetails extends Component<PersonDetailsProps, any> {
               onAddAdmin={this.props.onAddAdmin}
               onTransferCommunity={this.props.onTransferCommunity}
               onMarkPostAsRead={this.props.onMarkPostAsRead}
+              onHidePost={async () => {}}
             />
             <hr className="my-3" />
           </>

@@ -9,8 +9,14 @@ import {
   myAuth,
   setIsoData,
   updatePersonBlock,
+  voteDisplayMode,
 } from "@utils/app";
-import { capitalizeFirstLetter, randomStr } from "@utils/helpers";
+import {
+  capitalizeFirstLetter,
+  randomStr,
+  resourcesSettled,
+} from "@utils/helpers";
+import { scrollMixin } from "../mixins/scroll-mixin";
 import { RouteDataResponse } from "@utils/types";
 import classNames from "classnames";
 import { Component, linkEvent } from "inferno";
@@ -137,6 +143,7 @@ export type InboxFetchConfig = IRoutePropsWithFetch<
   Record<string, never>
 >;
 
+@scrollMixin
 export class Inbox extends Component<InboxRouteProps, InboxState> {
   private isoData = setIsoData<InboxData>(this.context);
   state: InboxState = {
@@ -152,6 +159,14 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
     finished: new Map(),
     isIsomorphic: false,
   };
+
+  loadingSettled() {
+    return resourcesSettled([
+      this.state.repliesRes,
+      this.state.mentionsRes,
+      this.state.messagesRes,
+    ]);
+  }
 
   constructor(props: any, context: any) {
     super(props, context);
@@ -486,6 +501,7 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
   }
 
   renderReplyType(i: ReplyType) {
+    const siteRes = this.state.siteRes;
     switch (i.type_) {
       case ReplyEnum.Reply:
         return (
@@ -499,9 +515,10 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
             markable
             showCommunity
             showContext
-            enableDownvotes={enableDownvotes(this.state.siteRes)}
-            allLanguages={this.state.siteRes.all_languages}
-            siteLanguages={this.state.siteRes.discussion_languages}
+            enableDownvotes={enableDownvotes(siteRes)}
+            voteDisplayMode={voteDisplayMode(siteRes)}
+            allLanguages={siteRes.all_languages}
+            siteLanguages={siteRes.discussion_languages}
             onSaveComment={this.handleSaveComment}
             onBlockPerson={this.handleBlockPerson}
             onDeleteComment={this.handleDeleteComment}
@@ -538,9 +555,10 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
             markable
             showCommunity
             showContext
-            enableDownvotes={enableDownvotes(this.state.siteRes)}
-            allLanguages={this.state.siteRes.all_languages}
-            siteLanguages={this.state.siteRes.discussion_languages}
+            enableDownvotes={enableDownvotes(siteRes)}
+            voteDisplayMode={voteDisplayMode(siteRes)}
+            allLanguages={siteRes.all_languages}
+            siteLanguages={siteRes.discussion_languages}
             onSaveComment={this.handleSaveComment}
             onBlockPerson={this.handleBlockPerson}
             onDeleteComment={this.handleDeleteComment}
@@ -593,6 +611,7 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
   }
 
   replies() {
+    const siteRes = this.state.siteRes;
     switch (this.state.repliesRes.state) {
       case "loading":
         return <CommentsLoadingSkeleton />;
@@ -607,9 +626,10 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
               markable
               showCommunity
               showContext
-              enableDownvotes={enableDownvotes(this.state.siteRes)}
-              allLanguages={this.state.siteRes.all_languages}
-              siteLanguages={this.state.siteRes.discussion_languages}
+              enableDownvotes={enableDownvotes(siteRes)}
+              voteDisplayMode={voteDisplayMode(siteRes)}
+              allLanguages={siteRes.all_languages}
+              siteLanguages={siteRes.discussion_languages}
               onSaveComment={this.handleSaveComment}
               onBlockPerson={this.handleBlockPerson}
               onDeleteComment={this.handleDeleteComment}
@@ -636,6 +656,7 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
   }
 
   mentions() {
+    const siteRes = this.state.siteRes;
     switch (this.state.mentionsRes.state) {
       case "loading":
         return <CommentsLoadingSkeleton />;
@@ -652,9 +673,10 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
                 markable
                 showCommunity
                 showContext
-                enableDownvotes={enableDownvotes(this.state.siteRes)}
-                allLanguages={this.state.siteRes.all_languages}
-                siteLanguages={this.state.siteRes.discussion_languages}
+                enableDownvotes={enableDownvotes(siteRes)}
+                voteDisplayMode={voteDisplayMode(siteRes)}
+                allLanguages={siteRes.all_languages}
+                siteLanguages={siteRes.discussion_languages}
                 onSaveComment={this.handleSaveComment}
                 onBlockPerson={this.handleBlockPerson}
                 onDeleteComment={this.handleDeleteComment}

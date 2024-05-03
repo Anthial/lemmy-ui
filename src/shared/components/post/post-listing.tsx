@@ -1,4 +1,4 @@
-import { myAuth } from "@utils/app";
+import { myAuth, setIsoData } from "@utils/app";
 import { canShare, share } from "@utils/browser";
 import { getExternalHost, getHttpBase } from "@utils/env";
 import { futureDaysToUnixTime, hostname } from "@utils/helpers";
@@ -19,7 +19,9 @@ import {
   DeletePost,
   EditPost,
   FeaturePost,
+  HidePost,
   Language,
+  LocalUserVoteDisplayMode,
   LockPost,
   MarkPostAsRead,
   PersonView,
@@ -32,10 +34,10 @@ import {
   TransferCommunity,
 } from "lemmy-js-client";
 import { relTags } from "../../config";
-import { VoteContentType } from "../../interfaces";
+import { IsoDataOptionalSite, VoteContentType } from "../../interfaces";
 import { mdToHtml, mdToHtmlInline } from "../../markdown";
 import { I18NextService, UserService } from "../../services";
-import { setupTippy } from "../../tippy";
+import { tippyMixin } from "../mixins/tippy-mixin";
 import { Icon } from "../common/icon";
 import { MomentTime } from "../common/moment-time";
 import { PictrsImage } from "../common/pictrs-image";
@@ -72,6 +74,7 @@ interface PostListingProps {
   showBody?: boolean;
   hideImage?: boolean;
   enableDownvotes?: boolean;
+  voteDisplayMode: LocalUserVoteDisplayMode;
   enableNsfw?: boolean;
   viewOnly?: boolean;
   onPostEdit(form: EditPost): Promise<RequestState<PostResponse>>;
@@ -91,9 +94,13 @@ interface PostListingProps {
   onAddAdmin(form: AddAdmin): Promise<void>;
   onTransferCommunity(form: TransferCommunity): Promise<void>;
   onMarkPostAsRead(form: MarkPostAsRead): void;
+  onHidePost(form: HidePost): Promise<void>;
+  onScrollIntoCommentsClick?(e: MouseEvent): void;
 }
 
+@tippyMixin
 export class PostListing extends Component<PostListingProps, PostListingState> {
+  private readonly isoData: IsoDataOptionalSite = setIsoData(this.context);
   state: PostListingState = {
     showEdit: false,
     imageExpanded: false,
@@ -124,10 +131,14 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     this.handleModBanFromSite = this.handleModBanFromSite.bind(this);
     this.handlePurgePerson = this.handlePurgePerson.bind(this);
     this.handlePurgePost = this.handlePurgePost.bind(this);
+    this.handleHidePost = this.handleHidePost.bind(this);
   }
 
   componentDidMount(): void {
-    if (UserService.Instance.myUserInfo) {
+    if (
+      UserService.Instance.myUserInfo &&
+      !this.isoData.showAdultConsentModal
+    ) {
       const { auto_expand, blur_nsfw } =
         UserService.Instance.myUserInfo.local_user_view.local_user;
       this.setState({
@@ -162,6 +173,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             onCancel={this.handleEditCancel}
             enableNsfw={this.props.enableNsfw}
             enableDownvotes={this.props.enableDownvotes}
+            voteDisplayMode={this.props.voteDisplayMode}
             allLanguages={this.props.allLanguages}
             siteLanguages={this.props.siteLanguages}
           />
@@ -191,6 +203,10 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   get img() {
     const { post } = this.postView;
     const { url } = post;
+
+    if (this.isoData.showAdultConsentModal) {
+      return <></>;
+    }
 
     if (this.imageSrc) {
       return (
@@ -386,7 +402,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             }
           </span>
         )}{" "}
-        • <MomentTime published={pv.post.published} updated={pv.post.updated} />
+        · <MomentTime published={pv.post.published} updated={pv.post.updated} />
       </div>
     );
   }
@@ -547,12 +563,18 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   }
 
   commentsLine(mobile = false) {
-    const { admins, moderators, showBody, onPostVote, enableDownvotes } =
-      this.props;
+    const {
+      admins,
+      moderators,
+      showBody,
+      onPostVote,
+      enableDownvotes,
+      voteDisplayMode,
+    } = this.props;
     const {
       post: { ap_id, id, body },
-      counts,
       my_vote,
+      counts,
     } = this.postView;
 
     return (
@@ -579,9 +601,10 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             voteContentType={VoteContentType.Post}
             id={id}
             onVote={onPostVote}
-            enableDownvotes={enableDownvotes}
             counts={counts}
-            my_vote={my_vote}
+            enableDownvotes={enableDownvotes}
+            voteDisplayMode={voteDisplayMode}
+            myVote={my_vote}
           />
         )}
 
@@ -609,6 +632,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
             onPurgeUser={this.handlePurgePerson}
             onPurgeContent={this.handlePurgePost}
             onAppointAdmin={this.handleAppointAdmin}
+            onHidePost={this.handleHidePost}
           />
         )}
       </div>
@@ -636,6 +660,7 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
         title={title}
         to={`/post/${pv.post.id}?scrollToComments=true`}
         data-tippy-content={title}
+        onClick={this.props.onScrollIntoCommentsClick}
       >
         <Icon icon="message-square" classes="me-1" inline />
         {pv.counts.comments}
@@ -735,8 +760,9 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
                   id={this.postView.post.id}
                   onVote={this.props.onPostVote}
                   enableDownvotes={this.props.enableDownvotes}
+                  voteDisplayMode={this.props.voteDisplayMode}
                   counts={this.postView.counts}
-                  my_vote={this.postView.my_vote}
+                  myVote={this.postView.my_vote}
                 />
               </div>
             )}
@@ -904,6 +930,13 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
     });
   }
 
+  handleHidePost() {
+    return this.props.onHidePost({
+      hide: !this.postView.hidden,
+      post_ids: [this.postView.post.id],
+    });
+  }
+
   handleModBanFromCommunity({
     daysUntilExpires,
     reason,
@@ -982,7 +1015,6 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
   handleImageExpandClick(i: PostListing, event: any) {
     event.preventDefault();
     i.setState({ imageExpanded: !i.state.imageExpanded });
-    setupTippy();
 
     if (myAuth() && !i.postView.read) {
       i.props.onMarkPostAsRead({
@@ -998,7 +1030,6 @@ export class PostListing extends Component<PostListingProps, PostListingState> {
 
   handleShowBody(i: PostListing) {
     i.setState({ showBody: !i.state.showBody });
-    setupTippy();
   }
 
   get pointsTippy(): string {

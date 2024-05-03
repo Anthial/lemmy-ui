@@ -1,14 +1,23 @@
 import { Component, InfernoNode, linkEvent } from "inferno";
 import { T } from "inferno-i18next-dess";
-import { PostReportView, PostView, ResolvePostReport } from "lemmy-js-client";
+import {
+  LocalUserVoteDisplayMode,
+  PostReportView,
+  PostView,
+  ResolvePostReport,
+} from "lemmy-js-client";
 import { I18NextService } from "../../services";
 import { Icon, Spinner } from "../common/icon";
 import { PersonListing } from "../person/person-listing";
 import { PostListing } from "./post-listing";
 import { EMPTY_REQUEST } from "../../services/HttpService";
+import { tippyMixin } from "../mixins/tippy-mixin";
 
 interface PostReportProps {
   report: PostReportView;
+  enableDownvotes?: boolean;
+  voteDisplayMode: LocalUserVoteDisplayMode;
+  enableNsfw?: boolean;
   onResolveReport(form: ResolvePostReport): void;
 }
 
@@ -16,6 +25,7 @@ interface PostReportState {
   loading: boolean;
 }
 
+@tippyMixin
 export class PostReport extends Component<PostReportProps, PostReportState> {
   state: PostReportState = {
     loading: false,
@@ -68,8 +78,9 @@ export class PostReport extends Component<PostReportProps, PostReportState> {
         <PostListing
           post_view={pv}
           showCommunity={true}
-          enableDownvotes={true}
-          enableNsfw={true}
+          enableDownvotes={this.props.enableDownvotes}
+          voteDisplayMode={this.props.voteDisplayMode}
+          enableNsfw={this.props.enableNsfw}
           viewOnly={true}
           allLanguages={[]}
           siteLanguages={[]}
@@ -92,6 +103,7 @@ export class PostReport extends Component<PostReportProps, PostReportState> {
           onAddAdmin={async () => {}}
           onTransferCommunity={async () => {}}
           onMarkPostAsRead={async () => {}}
+          onHidePost={async () => {}}
         />
         <div>
           {I18NextService.i18n.t("reporter")}:{" "}
