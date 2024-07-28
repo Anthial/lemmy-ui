@@ -5,7 +5,6 @@ import {
   editWith,
   enableDownvotes,
   enableNsfw,
-  getCommentParentId,
   getDataTypeString,
   myAuth,
   postToCommentSortType,
@@ -19,13 +18,14 @@ import {
   getQueryString,
   getRandomFromList,
   resourcesSettled,
+  bareRoutePush,
 } from "@utils/helpers";
 import { scrollMixin } from "../mixins/scroll-mixin";
 import { canCreateCommunity } from "@utils/roles";
 import type { QueryParams, StringBoolean } from "@utils/types";
 import { RouteDataResponse } from "@utils/types";
 import { NoOptionI18nKeys } from "i18next";
-import { Component, MouseEventHandler, linkEvent } from "inferno";
+import { Component, InfernoNode, MouseEventHandler, linkEvent } from "inferno";
 import { T } from "inferno-i18next-dess";
 import { Link } from "inferno-router";
 import {
@@ -36,7 +36,6 @@ import {
   BanPerson,
   BanPersonResponse,
   BlockPerson,
-  CommentId,
   CommentReplyResponse,
   CommentResponse,
   CreateComment,
@@ -112,7 +111,7 @@ import {
 import { RouteComponentProps } from "inferno-router/dist/Route";
 import { IRoutePropsWithFetch } from "../../routes";
 import PostHiddenSelect from "../common/post-hidden-select";
-import { snapToTop } from "@utils/browser";
+import { isBrowser, snapToTop } from "@utils/browser";
 
 interface HomeState {
   postsRes: RequestState<GetPostsResponse>;
@@ -124,7 +123,6 @@ interface HomeState {
   subscribedCollapsed: boolean;
   tagline?: string;
   siteRes: GetSiteResponse;
-  finished: Map<CommentId, boolean | undefined>;
   isIsomorphic: boolean;
 }
 
@@ -273,7 +271,6 @@ export class Home extends Component<HomeRouteProps, HomeState> {
     showTrendingMobile: false,
     showSidebarMobile: false,
     subscribedCollapsed: false,
-    finished: new Map(),
     isIsomorphic: false,
   };
 
@@ -344,14 +341,28 @@ export class Home extends Component<HomeRouteProps, HomeState> {
     )?.content;
   }
 
-  async componentDidMount() {
+  async componentWillMount() {
     if (
-      !this.state.isIsomorphic ||
-      !Object.values(this.isoData.routeData).some(
-        res => res.state === "success" || res.state === "failed",
-      )
+      (!this.state.isIsomorphic ||
+        !Object.values(this.isoData.routeData).some(
+          res => res.state === "success" || res.state === "failed",
+        )) &&
+      isBrowser()
     ) {
-      await Promise.all([this.fetchTrendingCommunities(), this.fetchData()]);
+      await Promise.all([
+        this.fetchTrendingCommunities(),
+        this.fetchData(this.props),
+      ]);
+    }
+  }
+
+  componentWillReceiveProps(
+    nextProps: HomeRouteProps & { children?: InfernoNode },
+  ) {
+    this.fetchData(nextProps);
+
+    if (bareRoutePush(this.props, nextProps)) {
+      this.fetchTrendingCommunities();
     }
   }
 
@@ -661,34 +672,23 @@ export class Home extends Component<HomeRouteProps, HomeState> {
     );
   }
 
-  async updateUrl({
-    dataType,
-    listingType,
-    pageCursor,
-    sort,
-    showHidden,
-  }: Partial<HomeProps>) {
-    const {
-      dataType: urlDataType,
-      listingType: urlListingType,
-      sort: urlSort,
-      showHidden: urlShowHidden,
-    } = this.props;
-
+  async updateUrl(props: Partial<HomeProps>) {
+    const { dataType, listingType, pageCursor, sort, showHidden } = {
+      ...this.props,
+      ...props,
+    };
     const queryParams: QueryParams<HomeProps> = {
-      dataType: getDataTypeString(dataType ?? urlDataType),
-      listingType: listingType ?? urlListingType,
+      dataType: getDataTypeString(dataType ?? DataType.Post),
+      listingType: listingType,
       pageCursor: pageCursor,
-      sort: sort ?? urlSort,
-      showHidden: showHidden ?? urlShowHidden,
+      sort: sort,
+      showHidden: showHidden,
     };
 
     this.props.history.push({
       pathname: "/",
       search: getQueryString(queryParams),
     });
-
-    await this.fetchData();
   }
 
   get posts() {
@@ -766,7 +766,6 @@ export class Home extends Component<HomeRouteProps, HomeState> {
             <CommentNodes
               nodes={commentsToFlatNodes(comments)}
               viewType={CommentViewType.Flat}
-              finished={this.state.finished}
               isTopLevel
               showCommunity
               showContext
@@ -854,31 +853,39 @@ export class Home extends Component<HomeRouteProps, HomeState> {
     });
   }
 
-  async fetchData() {
-    const { dataType, pageCursor, listingType, sort, showHidden } = this.props;
-
+  fetchDataToken?: symbol;
+  async fetchData({
+    dataType,
+    pageCursor,
+    listingType,
+    sort,
+    showHidden,
+  }: HomeProps) {
+    const token = (this.fetchDataToken = Symbol());
     if (dataType === DataType.Post) {
-      this.setState({ postsRes: LOADING_REQUEST });
-      this.setState({
-        postsRes: await HttpService.client.getPosts({
-          page_cursor: pageCursor,
-          limit: fetchLimit,
-          sort,
-          saved_only: false,
-          type_: listingType,
-          show_hidden: showHidden === "true",
-        }),
+      this.setState({ postsRes: LOADING_REQUEST, commentsRes: EMPTY_REQUEST });
+      const postsRes = await HttpService.client.getPosts({
+        page_cursor: pageCursor,
+        limit: fetchLimit,
+        sort,
+        saved_only: false,
+        type_: listingType,
+        show_hidden: showHidden === "true",
       });
+      if (token === this.fetchDataToken) {
+        this.setState({ postsRes });
+      }
     } else {
-      this.setState({ commentsRes: LOADING_REQUEST });
-      this.setState({
-        commentsRes: await HttpService.client.getComments({
-          limit: fetchLimit,
-          sort: postToCommentSortType(sort),
-          saved_only: false,
-          type_: listingType,
-        }),
+      this.setState({ commentsRes: LOADING_REQUEST, postsRes: EMPTY_REQUEST });
+      const commentsRes = await HttpService.client.getComments({
+        limit: fetchLimit,
+        sort: postToCommentSortType(sort),
+        saved_only: false,
+        type_: listingType,
       });
+      if (token === this.fetchDataToken) {
+        this.setState({ commentsRes });
+      }
     }
   }
 
@@ -923,7 +930,6 @@ export class Home extends Component<HomeRouteProps, HomeState> {
   }
 
   handleShowHiddenChange(show?: StringBoolean) {
-    console.log(`Got ${show}`);
     this.updateUrl({
       showHidden: show,
       pageCursor: undefined,
@@ -961,6 +967,9 @@ export class Home extends Component<HomeRouteProps, HomeState> {
     const createCommentRes = await HttpService.client.createComment(form);
     this.createAndUpdateComments(createCommentRes);
 
+    if (createCommentRes.state === "failed") {
+      toast(I18NextService.i18n.t(createCommentRes.err.message), "danger");
+    }
     return createCommentRes;
   }
 
@@ -968,6 +977,9 @@ export class Home extends Component<HomeRouteProps, HomeState> {
     const editCommentRes = await HttpService.client.editComment(form);
     this.findAndUpdateCommentEdit(editCommentRes);
 
+    if (editCommentRes.state === "failed") {
+      toast(I18NextService.i18n.t(editCommentRes.err.message), "danger");
+    }
     return editCommentRes;
   }
 
@@ -1156,7 +1168,6 @@ export class Home extends Component<HomeRouteProps, HomeState> {
           res.data.comment_view,
           s.commentsRes.data.comments,
         );
-        s.finished.set(res.data.comment_view.comment.id, true);
       }
       return s;
     });
@@ -1178,12 +1189,6 @@ export class Home extends Component<HomeRouteProps, HomeState> {
     this.setState(s => {
       if (s.commentsRes.state === "success" && res.state === "success") {
         s.commentsRes.data.comments.unshift(res.data.comment_view);
-
-        // Set finished for the parent
-        s.finished.set(
-          getCommentParentId(res.data.comment_view.comment) ?? 0,
-          true,
-        );
       }
       return s;
     });

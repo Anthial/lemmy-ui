@@ -1,5 +1,5 @@
 import { capitalizeFirstLetter } from "@utils/helpers";
-import { Component, InfernoNode } from "inferno";
+import { Component } from "inferno";
 import { T } from "inferno-i18next-dess";
 import { Prompt } from "inferno-router";
 import {
@@ -19,8 +19,14 @@ interface PrivateMessageFormProps {
   privateMessageView?: PrivateMessageView; // If a pm is given, that means this is an edit
   replyType?: boolean;
   onCancel?(): any;
-  onCreate?(form: CreatePrivateMessage): void;
-  onEdit?(form: EditPrivateMessage): void;
+  onCreate?(
+    form: CreatePrivateMessage,
+    bypassNavWarning: () => void,
+  ): Promise<boolean>;
+  onEdit?(
+    form: EditPrivateMessage,
+    bypassNavWarning: () => void,
+  ): Promise<boolean>;
 }
 
 interface PrivateMessageFormState {
@@ -28,6 +34,7 @@ interface PrivateMessageFormState {
   loading: boolean;
   previewMode: boolean;
   submitted: boolean;
+  bypassNavWarning?: boolean;
 }
 
 export class PrivateMessageForm extends Component<
@@ -47,14 +54,8 @@ export class PrivateMessageForm extends Component<
     super(props, context);
 
     this.handleContentChange = this.handleContentChange.bind(this);
-  }
-
-  componentWillReceiveProps(
-    nextProps: Readonly<{ children?: InfernoNode } & PrivateMessageFormProps>,
-  ): void {
-    if (this.props !== nextProps) {
-      this.setState({ loading: false, content: undefined, previewMode: false });
-    }
+    this.handlePrivateMessageSubmit =
+      this.handlePrivateMessageSubmit.bind(this);
   }
 
   render() {
@@ -63,7 +64,9 @@ export class PrivateMessageForm extends Component<
         <Prompt
           message={I18NextService.i18n.t("block_leaving")}
           when={
-            !this.state.loading && !!this.state.content && !this.state.submitted
+            !this.state.bypassNavWarning &&
+            ((!!this.state.content && !this.state.submitted) ||
+              this.state.loading)
           }
         />
         {!this.props.privateMessageView && (
@@ -118,9 +121,7 @@ export class PrivateMessageForm extends Component<
           </label>
           <div className="col-sm-10">
             <MarkdownTextArea
-              onSubmit={event => {
-                this.handlePrivateMessageSubmit(this, event);
-              }}
+              onSubmit={this.handlePrivateMessageSubmit}
               initialContent={this.state.content}
               onContentChange={this.handleContentChange}
               allLanguages={[]}
@@ -140,22 +141,34 @@ export class PrivateMessageForm extends Component<
     );
   }
 
-  handlePrivateMessageSubmit(i: PrivateMessageForm, event: any) {
-    event.preventDefault();
-    i.setState({ loading: true, submitted: true });
-    const pm = i.props.privateMessageView;
-    const content = i.state.content ?? "";
+  async handlePrivateMessageSubmit(): Promise<boolean> {
+    this.setState({ loading: true, submitted: true });
+    const pm = this.props.privateMessageView;
+    const content = this.state.content ?? "";
+    let success: boolean | undefined;
     if (pm) {
-      i.props.onEdit?.({
-        private_message_id: pm.private_message.id,
-        content,
-      });
+      success = await this.props.onEdit?.(
+        {
+          private_message_id: pm.private_message.id,
+          content,
+        },
+        () => {
+          this.setState({ bypassNavWarning: true });
+        },
+      );
     } else {
-      i.props.onCreate?.({
-        content,
-        recipient_id: i.props.recipient.id,
-      });
+      success = await this.props.onCreate?.(
+        {
+          content,
+          recipient_id: this.props.recipient.id,
+        },
+        () => {
+          this.setState({ bypassNavWarning: true });
+        },
+      );
     }
+    this.setState({ loading: false, submitted: success ?? true });
+    return success ?? true;
   }
 
   handleContentChange(val: string) {

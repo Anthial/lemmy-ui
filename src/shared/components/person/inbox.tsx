@@ -5,7 +5,6 @@ import {
   editPrivateMessage,
   editWith,
   enableDownvotes,
-  getCommentParentId,
   myAuth,
   setIsoData,
   updatePersonBlock,
@@ -28,7 +27,6 @@ import {
   BanPerson,
   BanPersonResponse,
   BlockPerson,
-  CommentId,
   CommentReplyResponse,
   CommentReplyView,
   CommentReportResponse,
@@ -89,6 +87,7 @@ import { getHttpBaseInternal } from "../../utils/env";
 import { CommentsLoadingSkeleton } from "../common/loading-skeleton";
 import { RouteComponentProps } from "inferno-router/dist/Route";
 import { IRoutePropsWithFetch } from "../../routes";
+import { isBrowser } from "@utils/browser";
 
 enum UnreadOrAll {
   Unread,
@@ -131,7 +130,6 @@ interface InboxState {
   sort: CommentSortType;
   page: number;
   siteRes: GetSiteResponse;
-  finished: Map<CommentId, boolean | undefined>;
   isIsomorphic: boolean;
 }
 
@@ -156,7 +154,6 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
     mentionsRes: EMPTY_REQUEST,
     messagesRes: EMPTY_REQUEST,
     markAllAsReadRes: EMPTY_REQUEST,
-    finished: new Map(),
     isIsomorphic: false,
   };
 
@@ -213,8 +210,8 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
     }
   }
 
-  async componentDidMount() {
-    if (!this.state.isIsomorphic) {
+  async componentWillMount() {
+    if (!this.state.isIsomorphic && isBrowser()) {
       await this.refetch();
     }
   }
@@ -511,7 +508,6 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
               { comment_view: i.view as CommentView, children: [], depth: 0 },
             ]}
             viewType={CommentViewType.Flat}
-            finished={this.state.finished}
             markable
             showCommunity
             showContext
@@ -550,7 +546,6 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
                 depth: 0,
               },
             ]}
-            finished={this.state.finished}
             viewType={CommentViewType.Flat}
             markable
             showCommunity
@@ -622,7 +617,6 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
             <CommentNodes
               nodes={commentsToFlatNodes(replies)}
               viewType={CommentViewType.Flat}
-              finished={this.state.finished}
               markable
               showCommunity
               showContext
@@ -669,7 +663,6 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
                 key={umv.person_mention.id}
                 nodes={[{ comment_view: umv, children: [], depth: 0 }]}
                 viewType={CommentViewType.Flat}
-                finished={this.state.finished}
                 markable
                 showCommunity
                 showContext
@@ -784,40 +777,60 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
     return inboxData;
   }
 
+  refetchToken?: symbol;
   async refetch() {
+    const token = (this.refetchToken = Symbol());
     const sort = this.state.sort;
     const unread_only = this.state.unreadOrAll === UnreadOrAll.Unread;
     const page = this.state.page;
     const limit = fetchLimit;
 
-    this.setState({ repliesRes: LOADING_REQUEST });
     this.setState({
-      repliesRes: await HttpService.client.getReplies({
+      repliesRes: LOADING_REQUEST,
+      mentionsRes: LOADING_REQUEST,
+      messagesRes: LOADING_REQUEST,
+    });
+    const repliesPromise = HttpService.client
+      .getReplies({
         sort,
         unread_only,
         page,
         limit,
-      }),
-    });
+      })
+      .then(repliesRes => {
+        if (token === this.refetchToken) {
+          this.setState({
+            repliesRes,
+          });
+        }
+      });
 
-    this.setState({ mentionsRes: LOADING_REQUEST });
-    this.setState({
-      mentionsRes: await HttpService.client.getPersonMentions({
+    const mentionsPromise = HttpService.client
+      .getPersonMentions({
         sort,
         unread_only,
         page,
         limit,
-      }),
-    });
+      })
+      .then(mentionsRes => {
+        if (token === this.refetchToken) {
+          this.setState({ mentionsRes });
+        }
+      });
 
-    this.setState({ messagesRes: LOADING_REQUEST });
-    this.setState({
-      messagesRes: await HttpService.client.getPrivateMessages({
+    const messagesPromise = HttpService.client
+      .getPrivateMessages({
         unread_only,
         page,
         limit,
-      }),
-    });
+      })
+      .then(messagesRes => {
+        if (token === this.refetchToken) {
+          this.setState({ messagesRes });
+        }
+      });
+
+    await Promise.all([repliesPromise, mentionsPromise, messagesPromise]);
     UnreadCounterService.Instance.updateInboxCounts();
   }
 
@@ -975,9 +988,13 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
     this.findAndUpdateMessage(res);
   }
 
-  async handleEditMessage(form: EditPrivateMessage) {
+  async handleEditMessage(form: EditPrivateMessage): Promise<boolean> {
     const res = await HttpService.client.editPrivateMessage(form);
     this.findAndUpdateMessage(res);
+    if (res.state === "failed") {
+      toast(I18NextService.i18n.t(res.err.message), "danger");
+    }
+    return res.state !== "failed";
   }
 
   async handleMarkMessageAsRead(form: MarkPrivateMessageAsRead) {
@@ -994,7 +1011,7 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
     this.reportToast(res);
   }
 
-  async handleCreateMessage(form: CreatePrivateMessage) {
+  async handleCreateMessage(form: CreatePrivateMessage): Promise<boolean> {
     const res = await HttpService.client.createPrivateMessage(form);
     this.setState(s => {
       if (s.messagesRes.state === "success" && res.state === "success") {
@@ -1005,6 +1022,10 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
 
       return s;
     });
+    if (res.state === "failed") {
+      toast(I18NextService.i18n.t(res.err.message), "danger");
+    }
+    return res.state !== "failed";
   }
 
   findAndUpdateMessage(res: RequestState<PrivateMessageResponse>) {
@@ -1073,6 +1094,8 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
   ) {
     if (res.state === "success") {
       toast(I18NextService.i18n.t("report_created"));
+    } else if (res.state === "failed") {
+      toast(I18NextService.i18n.t(res.err.message), "danger");
     }
   }
 
@@ -1092,11 +1115,6 @@ export class Inbox extends Component<InboxRouteProps, InboxState> {
             s.mentionsRes.data.mentions,
           );
         }
-        // Set finished for the parent
-        s.finished.set(
-          getCommentParentId(res.data.comment_view.comment) ?? 0,
-          true,
-        );
         return s;
       });
     }

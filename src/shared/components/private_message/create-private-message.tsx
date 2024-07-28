@@ -26,6 +26,7 @@ import { RouteComponentProps } from "inferno-router/dist/Route";
 import { IRoutePropsWithFetch } from "../../routes";
 import { resourcesSettled } from "@utils/helpers";
 import { scrollMixin } from "../mixins/scroll-mixin";
+import { isBrowser } from "@utils/browser";
 
 type CreatePrivateMessageData = RouteDataResponse<{
   recipientDetailsResponse: GetPersonDetailsResponse;
@@ -79,8 +80,8 @@ export class CreatePrivateMessage extends Component<
     }
   }
 
-  async componentDidMount() {
-    if (!this.state.isIsomorphic) {
+  async componentWillMount() {
+    if (!this.state.isIsomorphic && isBrowser()) {
       await this.fetchPersonDetails();
     }
   }
@@ -167,14 +168,22 @@ export class CreatePrivateMessage extends Component<
     );
   }
 
-  async handlePrivateMessageCreate(form: CreatePrivateMessageI) {
+  async handlePrivateMessageCreate(
+    form: CreatePrivateMessageI,
+    bypassNavWarning: () => void,
+  ): Promise<boolean> {
     const res = await HttpService.client.createPrivateMessage(form);
 
     if (res.state === "success") {
       toast(I18NextService.i18n.t("message_sent"));
 
+      bypassNavWarning();
       // Navigate to the front
       this.context.router.history.push("/");
+    } else if (res.state === "failed") {
+      toast(I18NextService.i18n.t(res.err.message), "danger");
     }
+
+    return res.state !== "failed";
   }
 }

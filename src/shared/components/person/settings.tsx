@@ -67,7 +67,12 @@ import { PersonListing } from "./person-listing";
 import { InitialFetchRequest } from "../../interfaces";
 import TotpModal from "../common/totp-modal";
 import { LoadingEllipses } from "../common/loading-ellipses";
-import { refreshTheme, setThemeOverride, snapToTop } from "../../utils/browser";
+import {
+  isBrowser,
+  refreshTheme,
+  setThemeOverride,
+  snapToTop,
+} from "../../utils/browser";
 import { getHttpBaseInternal } from "../../utils/env";
 import { IRoutePropsWithFetch } from "../../routes";
 import { RouteComponentProps } from "inferno-router/dist/Route";
@@ -348,17 +353,19 @@ export class Settings extends Component<SettingsRouteProps, SettingsState> {
     }
   }
 
-  async componentDidMount() {
-    this.setState({ themeList: await fetchThemeList() });
+  async componentWillMount() {
+    if (isBrowser()) {
+      this.setState({ themeList: await fetchThemeList() });
 
-    if (!this.state.isIsomorphic) {
-      this.setState({
-        instancesRes: LOADING_REQUEST,
-      });
+      if (!this.state.isIsomorphic) {
+        this.setState({
+          instancesRes: LOADING_REQUEST,
+        });
 
-      this.setState({
-        instancesRes: await HttpService.client.getFederatedInstances(),
-      });
+        this.setState({
+          instancesRes: await HttpService.client.getFederatedInstances(),
+        });
+      }
     }
   }
 

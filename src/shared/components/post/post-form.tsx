@@ -8,9 +8,9 @@ import {
   validURL,
 } from "@utils/helpers";
 import { isImage } from "@utils/media";
-import { Choice } from "@utils/types";
+import { Choice, StringBoolean } from "@utils/types";
 import autosize from "autosize";
-import { Component, InfernoNode, linkEvent } from "inferno";
+import { Component, InfernoNode, createRef, linkEvent } from "inferno";
 import { Prompt } from "inferno-router";
 import {
   CommunityView,
@@ -44,6 +44,7 @@ import { LanguageSelect } from "../common/language-select";
 import { MarkdownTextArea } from "../common/markdown-textarea";
 import { SearchableSelect } from "../common/searchable-select";
 import { PostListings } from "./post-listings";
+import { isBrowser } from "@utils/browser";
 
 const MAX_POST_TITLE_LENGTH = 200;
 
@@ -54,14 +55,23 @@ interface PostFormProps {
   siteLanguages: number[];
   params?: PostFormParams;
   onCancel?(): void;
-  onCreate?(form: CreatePost): void;
-  onEdit?(form: EditPost): void;
+  onCreate?(form: CreatePost, bypassNavWarning: () => void): void;
+  onEdit?(form: EditPost, bypassNavWarning: () => void): void;
   enableNsfw?: boolean;
   enableDownvotes?: boolean;
   voteDisplayMode: LocalUserVoteDisplayMode;
   selectedCommunityChoice?: Choice;
   onSelectCommunity?: (choice: Choice) => void;
   initialCommunities?: CommunityView[];
+  loading: boolean;
+  onTitleBlur?: (title: string) => void;
+  onUrlBlur?: (url: string) => void;
+  onBodyBlur?: (body: string) => void;
+  onLanguageChange?: (languageId?: number) => void;
+  onNsfwChange?: (nsfw: StringBoolean) => void;
+  onThumbnailUrlBlur?: (thumbnailUrl: string) => void;
+  onAltTextBlur?: (altText: string) => void;
+  onCopySuggestedTitle?: (url: string, title: string) => void;
 }
 
 interface PostFormState {
@@ -76,7 +86,6 @@ interface PostFormState {
     custom_thumbnail?: string;
     alt_text?: string;
   };
-  loading: boolean;
   suggestedPostsRes: RequestState<SearchResponse>;
   metadataRes: RequestState<GetSiteMetadataResponse>;
   imageLoading: boolean;
@@ -85,6 +94,7 @@ interface PostFormState {
   communitySearchOptions: Choice[];
   previewMode: boolean;
   submitted: boolean;
+  bypassNavWarning: boolean;
 }
 
 function handlePostSubmit(i: PostForm, event: any) {
@@ -93,48 +103,72 @@ function handlePostSubmit(i: PostForm, event: any) {
   if ((i.state.form.url ?? "") === "") {
     i.setState(s => ((s.form.url = undefined), s));
   }
-  i.setState({ loading: true, submitted: true });
+  // This forces `props.loading` to become true, then false, to enable the
+  // submit button again.
+  i.setState({ submitted: true });
 
   const pForm = i.state.form;
   const pv = i.props.post_view;
 
   if (pv) {
-    i.props.onEdit?.({
-      post_id: pv.post.id,
-      name: pForm.name,
-      url: pForm.url,
-      body: pForm.body,
-      nsfw: pForm.nsfw,
-      language_id: pForm.language_id,
-      custom_thumbnail: pForm.custom_thumbnail,
-      alt_text: pForm.alt_text,
-    });
+    i.props.onEdit?.(
+      {
+        post_id: pv.post.id,
+        name: pForm.name,
+        url: pForm.url,
+        body: pForm.body,
+        nsfw: pForm.nsfw,
+        language_id: pForm.language_id,
+        custom_thumbnail: pForm.custom_thumbnail,
+        alt_text: pForm.alt_text,
+      },
+      () => {
+        i.setState({ bypassNavWarning: true });
+      },
+    );
   } else if (pForm.name && pForm.community_id) {
-    i.props.onCreate?.({
-      name: pForm.name,
-      community_id: pForm.community_id,
-      url: pForm.url,
-      body: pForm.body,
-      nsfw: pForm.nsfw,
-      language_id: pForm.language_id,
-      honeypot: pForm.honeypot,
-      custom_thumbnail: pForm.custom_thumbnail,
-      alt_text: pForm.alt_text,
-    });
+    i.props.onCreate?.(
+      {
+        name: pForm.name,
+        community_id: pForm.community_id,
+        url: pForm.url,
+        body: pForm.body,
+        nsfw: pForm.nsfw,
+        language_id: pForm.language_id,
+        honeypot: pForm.honeypot,
+        custom_thumbnail: pForm.custom_thumbnail,
+        alt_text: pForm.alt_text,
+      },
+      () => {
+        i.setState({ bypassNavWarning: true });
+      },
+    );
   }
 }
 
-function copySuggestedTitle(d: { i: PostForm; suggestedTitle?: string }) {
-  const sTitle = d.suggestedTitle;
-  if (sTitle) {
-    d.i.setState(
-      s => ((s.form.name = sTitle?.substring(0, MAX_POST_TITLE_LENGTH)), s),
+function copySuggestedTitle({
+  i,
+  suggestedTitle,
+}: {
+  i: PostForm;
+  suggestedTitle?: string;
+}) {
+  if (suggestedTitle) {
+    i.setState(
+      s => (
+        (s.form.name = suggestedTitle?.substring(0, MAX_POST_TITLE_LENGTH)), s
+      ),
     );
-    d.i.setState({ suggestedPostsRes: EMPTY_REQUEST });
+    i.setState({ suggestedPostsRes: EMPTY_REQUEST });
     setTimeout(() => {
-      const textarea: any = document.getElementById("post-title");
-      autosize.update(textarea);
+      if (i.postTitleRef.current) {
+        autosize.update(i.postTitleRef.current);
+      }
     }, 10);
+
+    i.updateUrl(() =>
+      i.props.onCopySuggestedTitle?.(i.state.form.url!, suggestedTitle),
+    );
   }
 }
 
@@ -153,8 +187,16 @@ function handlePostUrlChange(i: PostForm, event: any) {
   i.fetchPageTitle();
 }
 
+function handlePostUrlBlur(i: PostForm, event: any) {
+  i.updateUrl(() => i.props.onUrlBlur?.(event.target.value));
+}
+
 function handlePostNsfwChange(i: PostForm, event: any) {
   i.setState(s => ((s.form.nsfw = event.target.checked), s));
+
+  i.updateUrl(() =>
+    i.props.onNsfwChange?.(event.target.checked ? "true" : "false"),
+  );
 }
 
 function handleHoneyPotChange(i: PostForm, event: any) {
@@ -165,8 +207,16 @@ function handleAltTextChange(i: PostForm, event: any) {
   i.setState(s => ((s.form.alt_text = event.target.value), s));
 }
 
+function handleAltTextBlur(i: PostForm, event: any) {
+  i.updateUrl(() => i.props.onAltTextBlur?.(event.target.value));
+}
+
 function handleCustomThumbnailChange(i: PostForm, event: any) {
   i.setState(s => ((s.form.custom_thumbnail = event.target.value), s));
+}
+
+function handleCustomThumbnailBlur(i: PostForm, event: any) {
+  i.updateUrl(() => i.props.onThumbnailUrlBlur?.(event.target.value));
 }
 
 function handleCancel(i: PostForm) {
@@ -192,8 +242,6 @@ function handleImageUpload(i: PostForm, event: any) {
   i.setState({ imageLoading: true });
 
   HttpService.client.uploadImage({ image: file }).then(res => {
-    console.log("pictrs upload:");
-    console.log(res);
     if (res.state === "success") {
       if (res.data.msg === "ok") {
         i.state.form.url = res.data.url;
@@ -219,6 +267,10 @@ function handlePostNameChange(i: PostForm, event: any) {
   i.fetchSimilarPosts();
 }
 
+function handlePostNameBlur(i: PostForm, event: any) {
+  i.updateUrl(() => i.props.onTitleBlur?.(event.target.value));
+}
+
 function handleImageDelete(i: PostForm) {
   const { imageDeleteUrl } = i.state;
 
@@ -240,22 +292,26 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
     suggestedPostsRes: EMPTY_REQUEST,
     metadataRes: EMPTY_REQUEST,
     form: {},
-    loading: false,
     imageLoading: false,
     imageDeleteUrl: "",
     communitySearchLoading: false,
     previewMode: false,
     communitySearchOptions: [],
     submitted: false,
+    bypassNavWarning: false,
   };
+
+  postTitleRef = createRef<HTMLTextAreaElement>();
 
   constructor(props: PostFormProps, context: any) {
     super(props, context);
     this.fetchSimilarPosts = debounce(this.fetchSimilarPosts.bind(this));
     this.fetchPageTitle = debounce(this.fetchPageTitle.bind(this));
     this.handlePostBodyChange = this.handlePostBodyChange.bind(this);
+    this.handlePostBodyBlur = this.handlePostBodyBlur.bind(this);
     this.handleLanguageChange = this.handleLanguageChange.bind(this);
     this.handleCommunitySelect = this.handleCommunitySelect.bind(this);
+    this.updateUrl = this.updateUrl.bind(this);
 
     const { post_view, selectedCommunityChoice, params } = this.props;
 
@@ -306,18 +362,26 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
     }
   }
 
-  componentDidMount() {
-    const textarea: any = document.getElementById("post-title");
+  componentWillMount() {
+    if (this.state.form.url && isBrowser()) {
+      this.fetchPageTitle();
+    }
+  }
 
-    if (textarea) {
-      autosize(textarea);
+  componentDidMount() {
+    if (this.postTitleRef.current) {
+      autosize(this.postTitleRef.current);
     }
   }
 
   componentWillReceiveProps(
     nextProps: Readonly<{ children?: InfernoNode } & PostFormProps>,
   ): void {
-    if (this.props !== nextProps) {
+    if (
+      this.props.selectedCommunityChoice?.value !==
+        nextProps.selectedCommunityChoice?.value &&
+      nextProps.selectedCommunityChoice
+    ) {
       this.setState(
         s => (
           (s.form.community_id = getIdFromString(
@@ -326,6 +390,33 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
           s
         ),
       );
+      this.setState({
+        communitySearchOptions: [nextProps.selectedCommunityChoice].concat(
+          (nextProps.initialCommunities?.map(communityToChoice) ?? []).filter(
+            option => option.value !== nextProps.selectedCommunityChoice?.value,
+          ),
+        ),
+      });
+    }
+    if (
+      !this.props.initialCommunities?.length &&
+      nextProps.initialCommunities?.length
+    ) {
+      this.setState({
+        communitySearchOptions:
+          nextProps.initialCommunities?.map(communityToChoice) ?? [],
+      });
+    }
+    if (this.props.loading && !nextProps.loading) {
+      this.setState({ submitted: false, bypassNavWarning: false });
+    }
+    if (this.props.params !== nextProps.params && nextProps.params) {
+      const params = nextProps.params;
+      for (const k in params) {
+        if (this.props.params?.[k] !== params[k]) {
+          this.setState(s => ({ form: { ...s.form, [k]: params[k] } }));
+        }
+      }
     }
   }
 
@@ -344,7 +435,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               this.state.form.name ||
               this.state.form.url ||
               this.state.form.body
-            ) && !this.state.submitted
+            ) && !this.state.bypassNavWarning
           }
         />
         <div className="mb-3 row">
@@ -356,6 +447,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               value={this.state.form.name}
               id="post-title"
               onInput={linkEvent(this, handlePostNameChange)}
+              onBlur={linkEvent(this, handlePostNameBlur)}
               className={`form-control ${
                 !validTitle(this.state.form.name) && "is-invalid"
               }`}
@@ -363,6 +455,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               rows={1}
               minLength={3}
               maxLength={MAX_POST_TITLE_LENGTH}
+              ref={this.postTitleRef}
             />
             {!validTitle(this.state.form.name) && (
               <div className="invalid-feedback">
@@ -385,6 +478,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               className="form-control mb-3"
               value={url}
               onInput={linkEvent(this, handlePostUrlChange)}
+              onBlur={linkEvent(this, handlePostUrlBlur)}
               onPaste={linkEvent(this, handleImageUploadPaste)}
             />
             {this.renderSuggestedTitleCopy()}
@@ -500,6 +594,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 className="form-control mb-3"
                 value={this.state.form.custom_thumbnail}
                 onInput={linkEvent(this, handleCustomThumbnailChange)}
+                onBlur={linkEvent(this, handleCustomThumbnailBlur)}
               />
             </div>
           </div>
@@ -514,6 +609,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
               initialContent={this.state.form.body}
               placeholder={I18NextService.i18n.t("optional")}
               onContentChange={this.handlePostBodyChange}
+              onContentBlur={this.handlePostBodyBlur}
               allLanguages={this.props.allLanguages}
               siteLanguages={this.props.siteLanguages}
               hideNavigationWarnings
@@ -543,6 +639,7 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
                 id="post-alt-text"
                 value={this.state.form.alt_text}
                 onInput={linkEvent(this, handleAltTextChange)}
+                onBlur={linkEvent(this, handleAltTextBlur)}
               />
             </div>
           </div>
@@ -597,11 +694,15 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
         <div className="mb-3 row">
           <div className="col-sm-10">
             <button
-              disabled={!this.state.form.community_id || this.state.loading}
+              disabled={
+                !this.state.form.community_id ||
+                this.props.loading ||
+                this.state.submitted
+              }
               type="submit"
               className="btn btn-secondary me-2"
             >
-              {this.state.loading ? (
+              {this.props.loading ? (
                 <Spinner />
               ) : this.props.post_view ? (
                 capitalizeFirstLetter(I18NextService.i18n.t("save"))
@@ -734,8 +835,13 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
     this.setState(s => ((s.form.body = val), s));
   }
 
+  handlePostBodyBlur(val: string) {
+    this.updateUrl(() => this.props.onBodyBlur?.(val));
+  }
+
   handleLanguageChange(val: number[]) {
     this.setState(s => ((s.form.language_id = val.at(0)), s));
+    this.updateUrl(() => this.props.onLanguageChange?.(val.at(0)));
   }
 
   handleCommunitySearch = debounce(async (text: string) => {
@@ -762,8 +868,12 @@ export class PostForm extends Component<PostFormProps, PostFormState> {
   });
 
   handleCommunitySelect(choice: Choice) {
-    if (this.props.onSelectCommunity) {
-      this.props.onSelectCommunity(choice);
-    }
+    this.updateUrl(() => this.props.onSelectCommunity?.(choice));
+  }
+
+  updateUrl(update: () => void) {
+    this.setState({ bypassNavWarning: true });
+    update();
+    this.setState({ bypassNavWarning: false });
   }
 }

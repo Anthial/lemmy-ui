@@ -3,7 +3,7 @@ import { capitalizeFirstLetter, resourcesSettled } from "@utils/helpers";
 import { scrollMixin } from "../mixins/scroll-mixin";
 import { RouteDataResponse } from "@utils/types";
 import classNames from "classnames";
-import { Component, linkEvent } from "inferno";
+import { Component } from "inferno";
 import {
   BannedPersonsResponse,
   CreateCustomEmoji,
@@ -41,6 +41,8 @@ import { IRoutePropsWithFetch } from "../../routes";
 import { MediaUploads } from "../common/media-uploads";
 import { Paginator } from "../common/paginator";
 import { snapToTop } from "@utils/browser";
+import { isBrowser } from "@utils/browser";
+import ConfirmationModal from "../common/confirmation-modal";
 
 type AdminSettingsData = RouteDataResponse<{
   bannedRes: BannedPersonsResponse;
@@ -51,10 +53,10 @@ type AdminSettingsData = RouteDataResponse<{
 interface AdminSettingsState {
   siteRes: GetSiteResponse;
   banned: PersonView[];
-  currentTab: string;
   instancesRes: RequestState<GetFederatedInstancesResponse>;
   bannedRes: RequestState<BannedPersonsResponse>;
   leaveAdminTeamRes: RequestState<GetSiteResponse>;
+  showConfirmLeaveAdmin: boolean;
   uploadsRes: RequestState<ListMediaResponse>;
   uploadsPage: number;
   loading: boolean;
@@ -79,10 +81,10 @@ export class AdminSettings extends Component<
   state: AdminSettingsState = {
     siteRes: this.isoData.site_res,
     banned: [],
-    currentTab: "site",
     bannedRes: EMPTY_REQUEST,
     instancesRes: EMPTY_REQUEST,
     leaveAdminTeamRes: EMPTY_REQUEST,
+    showConfirmLeaveAdmin: false,
     uploadsRes: EMPTY_REQUEST,
     uploadsPage: 1,
     loading: false,
@@ -106,6 +108,9 @@ export class AdminSettings extends Component<
     this.handleDeleteEmoji = this.handleDeleteEmoji.bind(this);
     this.handleCreateEmoji = this.handleCreateEmoji.bind(this);
     this.handleUploadsPageChange = this.handleUploadsPageChange.bind(this);
+    this.handleToggleShowLeaveAdminConfirmation =
+      this.handleToggleShowLeaveAdminConfirmation.bind(this);
+    this.handleLeaveAdminTeam = this.handleLeaveAdminTeam.bind(this);
 
     // Only fetch the data if coming from another route
     if (FirstLoadService.isFirstLoad) {
@@ -134,12 +139,14 @@ export class AdminSettings extends Component<
     };
   }
 
-  async componentDidMount() {
-    if (!this.state.isIsomorphic) {
-      await this.fetchData();
-    } else {
-      const themeList = await fetchThemeList();
-      this.setState({ themeList });
+  async componentWillMount() {
+    if (isBrowser()) {
+      if (!this.state.isIsomorphic) {
+        await this.fetchData();
+      } else {
+        const themeList = await fetchThemeList();
+        this.setState({ themeList });
+      }
     }
   }
 
@@ -339,6 +346,13 @@ export class AdminSettings extends Component<
           ))}
         </ul>
         {this.leaveAdmin()}
+        <ConfirmationModal
+          message={I18NextService.i18n.t("leave_admin_team_confirmation")}
+          loadingMessage={I18NextService.i18n.t("leaving_admin_team")}
+          onNo={this.handleToggleShowLeaveAdminConfirmation}
+          onYes={this.handleLeaveAdminTeam}
+          show={this.state.showConfirmLeaveAdmin}
+        />
       </>
     );
   }
@@ -346,7 +360,7 @@ export class AdminSettings extends Component<
   leaveAdmin() {
     return (
       <button
-        onClick={linkEvent(this, this.handleLeaveAdminTeam)}
+        onClick={this.handleToggleShowLeaveAdminConfirmation}
         className="btn btn-danger mb-2"
       >
         {this.state.leaveAdminTeamRes.state === "loading" ? (
@@ -421,6 +435,9 @@ export class AdminSettings extends Component<
         return s;
       });
       toast(I18NextService.i18n.t("site_saved"));
+
+      // You need to reload the page, to properly update the siteRes everywhere
+      setTimeout(() => location.reload(), 500);
     }
 
     this.setState({ loading: false });
@@ -428,18 +445,21 @@ export class AdminSettings extends Component<
     return editRes;
   }
 
-  handleSwitchTab(i: { ctx: AdminSettings; tab: string }) {
-    i.ctx.setState({ currentTab: i.tab });
+  handleToggleShowLeaveAdminConfirmation() {
+    this.setState(prev => ({
+      showConfirmLeaveAdmin: !prev.showConfirmLeaveAdmin,
+    }));
   }
 
-  async handleLeaveAdminTeam(i: AdminSettings) {
-    i.setState({ leaveAdminTeamRes: LOADING_REQUEST });
+  async handleLeaveAdminTeam() {
+    this.setState({ leaveAdminTeamRes: LOADING_REQUEST });
     this.setState({
       leaveAdminTeamRes: await HttpService.client.leaveAdmin(),
     });
 
     if (this.state.leaveAdminTeamRes.state === "success") {
       toast(I18NextService.i18n.t("left_admin_team"));
+      this.setState({ showConfirmLeaveAdmin: false });
       this.context.router.history.replace("/");
     }
   }
