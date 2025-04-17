@@ -3,7 +3,6 @@ import { isBrowser } from "@utils/browser";
 import { getQueryParams, resourcesSettled, validEmail } from "@utils/helpers";
 import { scrollMixin } from "../mixins/scroll-mixin";
 import { Component, linkEvent } from "inferno";
-import { T } from "inferno-i18next-dess";
 import {
   CaptchaResponse,
   GetCaptchaResponse,
@@ -11,7 +10,7 @@ import {
   LoginResponse,
   SiteView,
 } from "lemmy-js-client";
-import { joinLemmyUrl, validActorRegexPattern } from "../../config";
+import { validActorRegexPattern } from "../../config";
 import { mdToHtml } from "../../markdown";
 import { I18NextService, UserService } from "../../services";
 import {
